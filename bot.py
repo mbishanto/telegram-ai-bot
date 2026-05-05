@@ -167,8 +167,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
          # Buttons
         if user_text == "Help":
             return await help_cmd(update, context)
-        elif user_text == "Clear":
-            return await clear(update, context)
+     
         elif user_text == "About Eva":
             return await about(update, context)
 
