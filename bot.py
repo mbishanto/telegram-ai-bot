@@ -1,7 +1,7 @@
 from flask import Flask
 from threading import Thread
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from groq import Groq
 import random
 import os
@@ -34,10 +34,8 @@ def get_client():
     return Groq(api_key=random.choice(GROQ_KEYS))
 
 # ================== MEMORY ==================
-# Stores last messages per user
 user_memory = {}
-
-MAX_HISTORY = 6  # number of previous messages kept
+MAX_HISTORY = 6
 
 # ================== EVA PERSONALITY ==================
 SYSTEM_PROMPT = """
@@ -65,6 +63,26 @@ Goal:
 Make the user feel understood, helped, and comfortable.
 """
 
+# ================== COMMANDS ==================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Hello, I’m Eva. I’m here to help you with questions, ideas, or anything you need. How can I assist you today?"
+    )
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "You can talk to me normally or use these commands:\n"
+        "/start - Restart conversation\n"
+        "/help - Show help\n"
+        "/clear - Reset chat memory"
+    )
+
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.chat.id
+    user_memory[user_id] = []
+    await update.message.reply_text("Your conversation has been cleared.")
+
 # ================== HANDLER ==================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -74,19 +92,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.message.chat.id
         user_text = update.message.text
 
-        # Initialize memory
         if user_id not in user_memory:
             user_memory[user_id] = []
 
-        # Add user message
         user_memory[user_id].append({"role": "user", "content": user_text})
-
-        # Keep only last messages
         user_memory[user_id] = user_memory[user_id][-MAX_HISTORY:]
 
         client = get_client()
 
-        # Build conversation
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages += user_memory[user_id]
 
@@ -97,23 +110,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply = response.choices[0].message.content
 
-        # Save assistant reply to memory
         user_memory[user_id].append({"role": "assistant", "content": reply})
 
         await update.message.reply_text(reply)
 
     except Exception as e:
         print("Error:", e)
-        await update.message.reply_text("⚠️ Something went wrong. Please try again.")
+        await update.message.reply_text("Something went wrong. Please try again.")
 
 # ================== START ==================
 def main():
     keep_alive()
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    # ✅ ADD THESE (commands now work)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("clear", clear))
+
+    # existing handler
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🌸 Eva Advanced is running...")
+    print("Eva Advanced is running...")
     app.run_polling(timeout=30, drop_pending_updates=True)
 
 if __name__ == "__main__":
