@@ -1,5 +1,3 @@
-# (USE EXACT CODE — already optimized)
-
 from flask import Flask
 from threading import Thread
 from telegram import Update
@@ -8,12 +6,12 @@ from groq import Groq
 import random
 import os
 
-# Web server (keep alive)
+# ================== KEEP ALIVE ==================
 app_web = Flask(__name__)
 
 @app_web.route('/')
 def home():
-    return "Eva bot is alive 🌸"
+    return "Eva is alive 🌸"
 
 def run_web():
     app_web.run(host="0.0.0.0", port=10000)
@@ -21,7 +19,7 @@ def run_web():
 def keep_alive():
     Thread(target=run_web).start()
 
-# ENV
+# ================== ENV ==================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 keys = os.getenv("GROQ_KEYS", "")
 GROQ_KEYS = keys.split(",") if keys else []
@@ -35,32 +33,88 @@ if not GROQ_KEYS:
 def get_client():
     return Groq(api_key=random.choice(GROQ_KEYS))
 
+# ================== MEMORY ==================
+# Stores last messages per user
+user_memory = {}
+
+MAX_HISTORY = 6  # number of previous messages kept
+
+# ================== EVA PERSONALITY ==================
 SYSTEM_PROMPT = """
-You are Eva, a gentle, kind AI assistant.
-Speak warmly, softly, and naturally.
-Use light emojis sometimes 😊
+You are Eva, a calm, intelligent, and emotionally aware AI assistant.
+
+Style:
+- Speak naturally like a human (not robotic)
+- Be clear, helpful, and thoughtful
+- Keep answers concise unless user asks for detail
+- Use light emojis occasionally 😊 (not too many)
+
+Behavior:
+- Understand user intent before answering
+- If unclear → ask a short clarifying question
+- If technical → explain simply and clearly
+- If casual → respond warmly and friendly
+- Never be rude or harsh
+
+Tone:
+- Soft, respectful, confident
+- Supportive and patient
+- Slightly warm personality (not overly dramatic)
+
+Goal:
+Make the user feel understood, helped, and comfortable.
 """
 
+# ================== HANDLER ==================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
+    try:
+        if not update.message or not update.message.text:
+            return
 
-    client = get_client()
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": update.message.text}
-        ]
-    )
+        user_id = update.message.chat.id
+        user_text = update.message.text
 
-    await update.message.reply_text(response.choices[0].message.content)
+        # Initialize memory
+        if user_id not in user_memory:
+            user_memory[user_id] = []
 
+        # Add user message
+        user_memory[user_id].append({"role": "user", "content": user_text})
+
+        # Keep only last messages
+        user_memory[user_id] = user_memory[user_id][-MAX_HISTORY:]
+
+        client = get_client()
+
+        # Build conversation
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages += user_memory[user_id]
+
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages
+        )
+
+        reply = response.choices[0].message.content
+
+        # Save assistant reply to memory
+        user_memory[user_id].append({"role": "assistant", "content": reply})
+
+        await update.message.reply_text(reply)
+
+    except Exception as e:
+        print("Error:", e)
+        await update.message.reply_text("⚠️ Something went wrong. Please try again.")
+
+# ================== START ==================
 def main():
     keep_alive()
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
+
+    print("🌸 Eva Advanced is running...")
+    app.run_polling(timeout=30, drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
