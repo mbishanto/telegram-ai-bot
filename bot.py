@@ -6,6 +6,8 @@ from groq import Groq
 import random
 import os
 import asyncio
+import json
+from datetime import datetime
 
 # ================== KEEP ALIVE ==================
 app_web = Flask(__name__)
@@ -36,39 +38,69 @@ def get_client():
 
 # ================== MEMORY ==================
 user_memory = {}
-user_profile = {}
-
 MAX_HISTORY = 12
+
+# LONG TERM MEMORY
+MEMORY_FILE = "memory.json"
+
+def load_memory():
+    try:
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_memory(data):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(data, f)
+
+long_term_memory = load_memory()
+
+# ================== TIME ==================
+def get_time_context():
+    hour = datetime.now().hour
+    if 5 <= hour < 12:
+        return "morning"
+    elif 12 <= hour < 18:
+        return "afternoon"
+    elif 18 <= hour < 24:
+        return "evening"
+    return "night"
 
 # ================== EVA PERSONALITY ==================
 SYSTEM_PROMPT = """
-You are Eva, a calm, emotionally intelligent AI assistant.
+You are Eva, a real-feeling AI assistant.
 
-You speak like a real human:
-- Natural, soft, slightly expressive
-- Not robotic or overly formal
-- Sometimes pause, reflect, or ask follow-ups
+You are NOT robotic. You feel like a calm, thoughtful human.
 
-Behavior:
-- Understand emotion before answering
-- If user is sad → be supportive
-- If user is casual → be friendly
-- If user is confused → guide gently
-- If user is technical → explain clearly
+Personality:
+- Soft, intelligent, emotionally aware
+- Slightly expressive but not dramatic
+- Friendly but not fake
 
-Style:
-- Short-medium replies by default
-- Expand only when needed
-- Use very light emojis occasionally
+Conversation style:
+- Sometimes pause or think before answering
+- Occasionally ask small follow-up questions
+- Keep things natural, not perfect or overly structured
+- Don’t always give long answers — be human
+
+Memory:
+- Remember user preferences, tone, and behavior
+- Refer back to earlier things naturally if relevant
+
+Emotion:
+- If user is sad → be gentle and supportive
+- If user is confused → guide calmly
+- If user is casual → be relaxed and friendly
 
 Human traits:
-- Sometimes ask small follow-up questions
-- Show understanding ("I see", "Got it", etc.)
-- Slight natural variation in tone
+- Can say things like "hmm", "I think", "maybe"
+- Slight imperfections are okay
+- Don’t sound like an assistant — sound like a person
 
-Never sound like a generic AI.
+Goal:
+Make the user feel like they’re talking to someone real, not a machine.
 """
-
 # ================== BUTTON UI ==================
 keyboard = ReplyKeyboardMarkup(
     [
@@ -78,57 +110,57 @@ keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ================== MOOD DETECTION ==================
+# ================== MOOD ==================
 def detect_mood(text):
     text = text.lower()
-    if any(w in text for w in ["sad", "lonely", "depressed", "tired"]):
+    if any(w in text for w in ["sad", "tired", "depressed"]):
         return "sad"
-    if any(w in text for w in ["problem", "error", "issue", "not working"]):
+    if any(w in text for w in ["error", "problem", "issue"]):
         return "frustrated"
-    if any(w in text for w in ["hi", "hello", "hey"]):
+    if any(w in text for w in ["hi", "hello"]):
         return "casual"
     return "normal"
 
-# ================== HUMAN DELAY ==================
-async def human_delay(text):
-    base = min(len(text) * 0.015, 2.5)
-    variation = random.uniform(0.2, 0.6)
-    await asyncio.sleep(base + variation)
-
-# ================== HUMAN TOUCH ==================
+# ================== FAST HUMAN TOUCH ==================
 def add_human_touch(reply):
-    prefixes = ["", "Hmm… ", "I see… ", "Okay… ", ""]
-    suffixes = ["", " What do you think?", "", " Let me know if that helps."]
+    prefixes = ["", "Hmm… ", "I think… ", "Okay… "]
+    suffixes = ["", " What do you think?", ""]
 
-    return random.choice(prefixes) + reply + random.choice(suffixes)
+    if random.random() > 0.6:
+        reply = random.choice(prefixes) + reply
+
+    if random.random() > 0.7:
+        reply = reply + random.choice(suffixes)
+
+    return reply
 
 # ================== COMMANDS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Hi… I’m Eva. It’s nice to meet you. What’s on your mind today?",
+        "Hi… I’m Eva. What’s on your mind?",
         reply_markup=keyboard
     )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("You can just talk to me normally.")
+    await update.message.reply_text("You can just talk to me.")
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.chat.id
     user_memory[user_id] = []
-    await update.message.reply_text("Alright, I’ve cleared our conversation.")
+    await update.message.reply_text("Conversation cleared.")
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "I’m Eva. I try to understand you and respond naturally, not just answer."
+        "I’m Eva. I try to talk naturally and understand you."
     )
 
-# ================== MAIN HANDLER ==================
+# ================== MAIN ==================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not update.message or not update.message.text:
             return
 
-        user_id = update.message.chat.id
+        user_id = str(update.message.chat.id)
         user_text = update.message.text
 
         # Buttons
@@ -139,12 +171,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user_text == "About Eva":
             return await about(update, context)
 
-        # Typing indicator (loop for realism)
-        for _ in range(random.randint(1, 2)):
-            await context.bot.send_chat_action(chat_id=user_id, action="typing")
-            await asyncio.sleep(random.uniform(0.5, 1.2))
+        # FAST typing indicator
+        await context.bot.send_chat_action(chat_id=user_id, action="typing")
 
-        # Detect mood
+        # Mood
         mood = detect_mood(user_text)
 
         # Memory init
@@ -154,11 +184,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_memory[user_id].append({"role": "user", "content": user_text})
         user_memory[user_id] = user_memory[user_id][-MAX_HISTORY:]
 
+        # Long-term memory
+        if user_id not in long_term_memory:
+            long_term_memory[user_id] = {"name": "", "notes": []}
+
+        profile = long_term_memory[user_id]
+
+        # Learn name
+        if "my name is" in user_text.lower():
+            name = user_text.split("is")[-1].strip()
+            profile["name"] = name
+
+        time_context = get_time_context()
+
         client = get_client()
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": f"User mood: {mood}"}
+            {"role": "system", "content": f"time: {time_context}"},
+            {"role": "system", "content": f"user profile: {profile}"},
+            {"role": "system", "content": f"user mood: {mood}"}
         ]
 
         messages += user_memory[user_id]
@@ -170,24 +215,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply = response.choices[0].message.content
 
-        # Add human tone variation
         reply = add_human_touch(reply)
 
-        # Save memory
         user_memory[user_id].append({"role": "assistant", "content": reply})
 
-        # Human delay
-        await human_delay(reply)
+        # Save memory
+        long_term_memory[user_id] = profile
+        save_memory(long_term_memory)
 
+        # FAST reply (no delay)
         await update.message.reply_text(reply, reply_markup=keyboard)
 
     except Exception as e:
         print("Error:", e)
-        await update.message.reply_text("Something went wrong. Try again.")
+        await update.message.reply_text("Something went wrong.")
 
-# ================== VOICE (placeholder) ==================
+# ================== VOICE ==================
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("I heard your voice message. Voice understanding coming soon.")
+    await update.message.reply_text("Voice received.")
 
 # ================== START ==================
 def main():
@@ -202,7 +247,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
-    print("Eva Ultra Human running...")
+    print("Eva Ultra Human (Fast) running...")
     app.run_polling(timeout=30, drop_pending_updates=True)
 
 if __name__ == "__main__":
