@@ -163,14 +163,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.message.chat.id)
         user_text = update.message.text
 
-        # Buttons
-        if user_text == "Help":
-            return await help_cmd(update, context)
-        elif user_text == "Clear":
-            return await clear(update, context)
-        elif user_text == "About Eva":
-            return await about(update, context)
-
+    
         # FAST typing indicator
         await context.bot.send_chat_action(chat_id=user_id, action="typing")
 
