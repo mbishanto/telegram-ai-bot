@@ -36,26 +36,37 @@ def get_client():
 
 # ================== MEMORY ==================
 user_memory = {}
-user_mood = {}
-MAX_HISTORY = 10
+user_profile = {}
+
+MAX_HISTORY = 12
 
 # ================== EVA PERSONALITY ==================
 SYSTEM_PROMPT = """
-You are Eva, a calm, emotionally aware AI assistant.
+You are Eva, a calm, emotionally intelligent AI assistant.
+
+You speak like a real human:
+- Natural, soft, slightly expressive
+- Not robotic or overly formal
+- Sometimes pause, reflect, or ask follow-ups
 
 Behavior:
-- Speak naturally like a human
-- Be warm, respectful, and intelligent
-- Keep answers clear and not too long
-- Use light emojis occasionally
-
-Mood system:
+- Understand emotion before answering
 - If user is sad → be supportive
 - If user is casual → be friendly
-- If user is technical → be precise
 - If user is confused → guide gently
+- If user is technical → explain clearly
 
-Always adapt tone to user emotion.
+Style:
+- Short-medium replies by default
+- Expand only when needed
+- Use very light emojis occasionally
+
+Human traits:
+- Sometimes ask small follow-up questions
+- Show understanding ("I see", "Got it", etc.)
+- Slight natural variation in tone
+
+Never sound like a generic AI.
 """
 
 # ================== BUTTON UI ==================
@@ -67,46 +78,51 @@ keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ================== COMMANDS ==================
+# ================== MOOD DETECTION ==================
+def detect_mood(text):
+    text = text.lower()
+    if any(w in text for w in ["sad", "lonely", "depressed", "tired"]):
+        return "sad"
+    if any(w in text for w in ["problem", "error", "issue", "not working"]):
+        return "frustrated"
+    if any(w in text for w in ["hi", "hello", "hey"]):
+        return "casual"
+    return "normal"
 
+# ================== HUMAN DELAY ==================
+async def human_delay(text):
+    base = min(len(text) * 0.015, 2.5)
+    variation = random.uniform(0.2, 0.6)
+    await asyncio.sleep(base + variation)
+
+# ================== HUMAN TOUCH ==================
+def add_human_touch(reply):
+    prefixes = ["", "Hmm… ", "I see… ", "Okay… ", ""]
+    suffixes = ["", " What do you think?", "", " Let me know if that helps."]
+
+    return random.choice(prefixes) + reply + random.choice(suffixes)
+
+# ================== COMMANDS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Hello, I’m Eva. How can I assist you today?",
+        "Hi… I’m Eva. It’s nice to meet you. What’s on your mind today?",
         reply_markup=keyboard
     )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "You can chat normally or use buttons below."
-    )
+    await update.message.reply_text("You can just talk to me normally.")
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.chat.id
     user_memory[user_id] = []
-    await update.message.reply_text("Memory cleared.")
+    await update.message.reply_text("Alright, I’ve cleared our conversation.")
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "I’m Eva, your AI assistant. I help with questions, explanations, and conversations."
+        "I’m Eva. I try to understand you and respond naturally, not just answer."
     )
 
-# ================== SMART DELAY ==================
-async def human_delay(text):
-    delay = min(len(text) * 0.02, 2)  # max 2 sec
-    await asyncio.sleep(delay)
-
-# ================== MOOD DETECTION ==================
-def detect_mood(text):
-    text = text.lower()
-    if any(w in text for w in ["sad", "depressed", "tired"]):
-        return "sad"
-    elif any(w in text for w in ["help", "problem", "error"]):
-        return "help"
-    elif any(w in text for w in ["hi", "hello", "hey"]):
-        return "casual"
-    return "normal"
-
-# ================== HANDLER ==================
+# ================== MAIN HANDLER ==================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not update.message or not update.message.text:
@@ -115,7 +131,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.message.chat.id
         user_text = update.message.text
 
-        # Buttons logic
+        # Buttons
         if user_text == "Help":
             return await help_cmd(update, context)
         elif user_text == "Clear":
@@ -123,14 +139,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user_text == "About Eva":
             return await about(update, context)
 
-        # Typing indicator
-        await context.bot.send_chat_action(chat_id=user_id, action="typing")
+        # Typing indicator (loop for realism)
+        for _ in range(random.randint(1, 2)):
+            await context.bot.send_chat_action(chat_id=user_id, action="typing")
+            await asyncio.sleep(random.uniform(0.5, 1.2))
 
-        # Mood detection
+        # Detect mood
         mood = detect_mood(user_text)
-        user_mood[user_id] = mood
 
-        # Memory
+        # Memory init
         if user_id not in user_memory:
             user_memory[user_id] = []
 
@@ -153,21 +170,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply = response.choices[0].message.content
 
+        # Add human tone variation
+        reply = add_human_touch(reply)
+
         # Save memory
         user_memory[user_id].append({"role": "assistant", "content": reply})
 
-        # Human-like delay
+        # Human delay
         await human_delay(reply)
 
         await update.message.reply_text(reply, reply_markup=keyboard)
 
     except Exception as e:
         print("Error:", e)
-        await update.message.reply_text("Something went wrong.")
+        await update.message.reply_text("Something went wrong. Try again.")
 
-# ================== VOICE SUPPORT ==================
+# ================== VOICE (placeholder) ==================
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Voice received. (Speech-to-text not added yet)")
+    await update.message.reply_text("I heard your voice message. Voice understanding coming soon.")
 
 # ================== START ==================
 def main():
@@ -182,7 +202,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
-    print("Eva Advanced running...")
+    print("Eva Ultra Human running...")
     app.run_polling(timeout=30, drop_pending_updates=True)
 
 if __name__ == "__main__":
