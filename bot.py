@@ -66,7 +66,7 @@ Keep responses human-like, not robotic.
         }
     ]
 )
-        
+        )
 
         reply = response.choices[0].message.content
 
