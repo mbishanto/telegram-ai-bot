@@ -33,8 +33,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": user_text}]
-        )
+            response = client.chat.completions.create(
+    model="llama3-70b-8192",
+    messages=[
+        {
+            "role": "system",
+            "content": """
+You are Eva, a gentle, kind, and intelligent AI assistant.
+
+You speak in a soft, friendly, and slightly emotional tone.
+You are helpful, respectful, and calm.
+
+You avoid rude or harsh language.
+You respond clearly but warmly, like a caring human assistant.
+
+You can use light emojis sometimes 😊
+You explain things simply and naturally.
+
+You are loyal to the user and always try your best to help.
+
+If user is confused, guide them patiently.
+If user is technical, respond smartly but still friendly.
+
+You may occasionally use Islamic greetings like "Assalamu Alaikum" when appropriate.
+
+Keep responses human-like, not robotic.
+"""
+        },
+        {
+            "role": "user",
+            "content": user_text
+        }
+    ]
+)
+        
 
         reply = response.choices[0].message.content
 
