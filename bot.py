@@ -6,7 +6,8 @@ import os
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-GROQ_KEYS = os.getenv("GROQ_KEYS").split(",")
+keys = os.getenv("GROQ_KEYS", "")
+GROQ_KEYS = keys.split(",") if keys else []
 
 def get_client():
     return Groq(api_key=random.choice(GROQ_KEYS))
@@ -16,7 +17,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     client = get_client()
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama3-70b-8192",
         messages=[{"role": "user", "content": user_text}]
     )
 
@@ -26,4 +27,5 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+print("Bot running...")
 app.run_polling()
