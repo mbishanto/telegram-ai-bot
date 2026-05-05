@@ -1,11 +1,10 @@
 from flask import Flask
 from threading import Thread
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from groq import Groq
 import random
 import os
-import asyncio
 import json
 from datetime import datetime
 
@@ -40,7 +39,6 @@ def get_client():
 user_memory = {}
 MAX_HISTORY = 12
 
-# LONG TERM MEMORY
 MEMORY_FILE = "memory.json"
 
 def load_memory():
@@ -101,14 +99,6 @@ Human traits:
 Goal:
 Make the user feel like they’re talking to someone real, not a machine.
 """
-# ================== BUTTON UI ==================
-keyboard = ReplyKeyboardMarkup(
-    [
-        ["Help", "Clear"],
-        ["About Eva"]
-    ],
-    resize_keyboard=True
-)
 
 # ================== MOOD ==================
 def detect_mood(text):
@@ -121,7 +111,7 @@ def detect_mood(text):
         return "casual"
     return "normal"
 
-# ================== FAST HUMAN TOUCH ==================
+# ================== HUMAN TOUCH ==================
 def add_human_touch(reply):
     prefixes = ["", "Hmm… ", "I think… ", "Okay… "]
     suffixes = ["", " What do you think?", ""]
@@ -137,8 +127,7 @@ def add_human_touch(reply):
 # ================== COMMANDS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Hi… I’m Eva. What’s on your mind?",
-        reply_markup=keyboard
+        "Hi… I’m Eva. What’s on your mind?"
     )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -163,38 +152,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.message.chat.id)
         user_text = update.message.text
 
-
-         # Buttons
-        if user_text == "Help":
-            return await help_cmd(update, context)
-     
-        elif user_text == "About Eva":
-            return await about(update, context)
-
-
-
-
-        
-        # FAST typing indicator
+        # Typing indicator
         await context.bot.send_chat_action(chat_id=user_id, action="typing")
 
-        # Mood
         mood = detect_mood(user_text)
 
-        # Memory init
         if user_id not in user_memory:
             user_memory[user_id] = []
 
         user_memory[user_id].append({"role": "user", "content": user_text})
         user_memory[user_id] = user_memory[user_id][-MAX_HISTORY:]
 
-        # Long-term memory
         if user_id not in long_term_memory:
             long_term_memory[user_id] = {"name": "", "notes": []}
 
         profile = long_term_memory[user_id]
 
-        # Learn name
         if "my name is" in user_text.lower():
             name = user_text.split("is")[-1].strip()
             profile["name"] = name
@@ -218,17 +191,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         reply = response.choices[0].message.content
-
         reply = add_human_touch(reply)
 
         user_memory[user_id].append({"role": "assistant", "content": reply})
 
-        # Save memory
         long_term_memory[user_id] = profile
         save_memory(long_term_memory)
 
-        # FAST reply (no delay)
-        await update.message.reply_text(reply, reply_markup=keyboard)
+        await update.message.reply_text(reply)
 
     except Exception as e:
         print("Error:", e)
@@ -251,7 +221,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
-    print("Eva Ultra Human (Fast) running...")
+    print("Eva Ultra Human (No Buttons) running...")
     app.run_polling(timeout=30, drop_pending_updates=True)
 
 if __name__ == "__main__":
