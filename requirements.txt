@@ -3,3 +3,5 @@ groq
 flask
 supabase
 duckduckgo-search
+google-generativeai
+pillow
