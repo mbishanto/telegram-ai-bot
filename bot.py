@@ -484,82 +484,10 @@ Use this memory naturally in conversation.
             f"Error: {str(e)}"
         )
 # ================== VOICE ==================
-import whisper
-from gtts import gTTS
-
-model_whisper = whisper.load_model("base")
-
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    try:
-
-        user_id = str(update.message.chat.id)
-
-        voice = await update.message.voice.get_file()
-
-        ogg_path = f"{user_id}.ogg"
-        mp3_path = f"{user_id}.mp3"
-
-        await voice.download_to_drive(ogg_path)
-
-        # Speech to text
-        result = model_whisper.transcribe(
-            ogg_path
-        )
-
-        user_text = result["text"]
-
-        await update.message.reply_text(
-            f"You said: {user_text}"
-        )
-
-        # Generate AI reply
-        profile = get_user(user_id)
-
-        client = get_client()
-
-        messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-
-            {
-                "role": "user",
-                "content": user_text
-            }
-        ]
-
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=messages
-        )
-
-        reply = response.choices[0].message.content
-
-        # Text to speech
-        tts = gTTS(reply)
-
-        tts.save(mp3_path)
-
-        # Send voice reply
-        with open(mp3_path, "rb") as audio:
-            await update.message.reply_voice(
-                voice=audio
-            )
-
-        # Cleanup
-        if os.path.exists(ogg_path):
-            os.remove(ogg_path)
-
-        if os.path.exists(mp3_path):
-            os.remove(mp3_path)
-
-    except Exception as e:
-
-        await update.message.reply_text(
-            f"Voice Error: {str(e)}"
-        )
+    await update.message.reply_text(
+        "Voice received."
+    )
 # ================== START ==================
 def main():
     keep_alive()
