@@ -63,13 +63,15 @@ def get_user(user_id):
         return {
             "name": data[0].get("name", ""),
             "notes": data[0].get("notes", []),
-            "summary": data[0].get("summary", "")
+            "summary": data[0].get("summary", ""),
+            "emotions": data[0].get("emotions", [])
         }
 
     return {
         "name": "",
         "notes": [],
-        "summary": ""
+        "summary": "",
+        "emotions": []
     }
 
 def save_user(user_id, profile):
@@ -78,7 +80,8 @@ def save_user(user_id, profile):
         "user_id": user_id,
         "name": profile["name"],
         "notes": profile["notes"],
-        "summary": profile.get("summary", "")
+        "summary": profile.get("summary", ""),
+        "emotions": profile.get("emotions", [])
     }).execute()
 
 # ================== TIME ==================
@@ -178,7 +181,8 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile = {
         "name": "",
         "notes": [],
-        "summary": ""
+        "summary": "",
+        "emotions": []
     }
 
     save_user(user_id, profile)
@@ -320,6 +324,58 @@ Existing memories:
         if len(profile["notes"]) > 100:
             profile["notes"] = profile["notes"][-100:]
 
+        # ================== EMOTIONAL MEMORY ==================
+
+        emotion_prompt = f"""
+Analyze the emotional state and behavioral pattern of this user message.
+
+Return ONLY short emotional observations.
+
+Examples:
+- User seems stressed about studies
+- User likes calm conversations
+- User is excited about gaming
+
+Keep it short.
+
+User message:
+{user_text}
+"""
+
+        try:
+
+            emotion_response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": emotion_prompt
+                    }
+                ]
+            )
+
+            emotion_memory = (
+                emotion_response
+                .choices[0]
+                .message
+                .content
+                .strip()
+            )
+
+            if emotion_memory:
+
+                if emotion_memory not in profile["emotions"]:
+                    profile["emotions"].append(
+                        emotion_memory
+                    )
+
+        except:
+            pass
+
+        # Limit emotion memory
+        if len(profile["emotions"]) > 30:
+            profile["emotions"] = profile["emotions"][-30:]
+
         # ================== MEMORY SUMMARY ==================
 
         if len(profile["notes"]) >= 5:
@@ -379,6 +435,9 @@ User name: {profile['name']}
 
 User summary:
 {profile.get('summary', '')}
+
+User emotional patterns:
+{profile.get('emotions', [])}
 
 User notes:
 {profile['notes']}
