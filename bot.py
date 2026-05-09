@@ -38,7 +38,7 @@ def get_client():
 
 # ================== MEMORY ==================
 user_memory = {}
-MAX_HISTORY = 12
+MAX_HISTORY = 100
 
 # ================== DATABASE ==================
 conn = sqlite3.connect("database.db", check_same_thread=False)
@@ -135,12 +135,16 @@ Make the user feel like they’re talking to someone real, not a machine.
 # ================== MOOD ==================
 def detect_mood(text):
     text = text.lower()
+
     if any(w in text for w in ["sad", "tired", "depressed"]):
         return "sad"
+
     if any(w in text for w in ["error", "problem", "issue"]):
         return "frustrated"
+
     if any(w in text for w in ["hi", "hello"]):
         return "casual"
+
     return "normal"
 
 # ================== HUMAN TOUCH ==================
@@ -163,10 +167,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("You can just talk to me.")
+    await update.message.reply_text(
+        "You can just talk to me."
+    )
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.chat.id)
+
     user_memory[user_id] = []
 
     profile = {
@@ -176,7 +183,9 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_user(user_id, profile)
 
-    await update.message.reply_text("Conversation cleared.")
+    await update.message.reply_text(
+        "Conversation cleared."
+    )
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -193,37 +202,85 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text = update.message.text
 
         # Typing indicator
-        await context.bot.send_chat_action(chat_id=user_id, action="typing")
+        await context.bot.send_chat_action(
+            chat_id=user_id,
+            action="typing"
+        )
 
         mood = detect_mood(user_text)
 
         if user_id not in user_memory:
             user_memory[user_id] = []
 
-        user_memory[user_id].append({"role": "user", "content": user_text})
+        user_memory[user_id].append({
+            "role": "user",
+            "content": user_text
+        })
+
         user_memory[user_id] = user_memory[user_id][-MAX_HISTORY:]
 
         profile = get_user(user_id)
 
+        # ================== SAVE NAME ==================
         if "my name is" in user_text.lower():
-            name = user_text.split("is")[-1].strip()
-            profile["name"] = name
+            name = user_text.lower().split("my name is")[-1].strip()
+            profile["name"] = name.title()
 
-        if "i like" in user_text.lower():
-            profile["notes"].append(user_text)
+        # ================== SAVE MEMORY ==================
+        memory_keywords = [
+            "i like",
+            "i love",
+            "my favorite",
+            "remember this",
+            "i am",
+            "i work",
+            "i live",
+            "my birthday"
+        ]
 
-        if len(profile["notes"]) > 20:
-            profile["notes"] = profile["notes"][-20:]
+        if any(k in user_text.lower() for k in memory_keywords):
+
+            if user_text not in profile["notes"]:
+                profile["notes"].append(user_text)
+
+        if len(profile["notes"]) > 50:
+            profile["notes"] = profile["notes"][-50:]
 
         time_context = get_time_context()
 
         client = get_client()
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": f"time: {time_context}"},
-            {"role": "system", "content": f"user profile: {profile}"},
-            {"role": "system", "content": f"user mood: {mood}"}
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            },
+
+            {
+                "role": "system",
+                "content": f"time: {time_context}"
+            },
+
+            {
+                "role": "system",
+                "content": f"""
+IMPORTANT USER MEMORY:
+
+User name: {profile['name']}
+
+User notes:
+{profile['notes']}
+
+You MUST remember these details permanently.
+Never forget the user's name or personal details unless they change them.
+Use this memory naturally in conversation.
+"""
+            },
+
+            {
+                "role": "system",
+                "content": f"user mood: {mood}"
+            }
         ]
 
         messages += user_memory[user_id]
@@ -234,9 +291,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         reply = response.choices[0].message.content
+
         reply = add_human_touch(reply)
 
-        user_memory[user_id].append({"role": "assistant", "content": reply})
+        user_memory[user_id].append({
+            "role": "assistant",
+            "content": reply
+        })
 
         save_user(user_id, profile)
 
@@ -244,27 +305,57 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print("Error:", e)
-        await update.message.reply_text("Something went wrong.")
+
+        await update.message.reply_text(
+            "Something went wrong."
+        )
 
 # ================== VOICE ==================
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Voice received.")
+    await update.message.reply_text(
+        "Voice received."
+    )
 
 # ================== START ==================
 def main():
     keep_alive()
 
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(
+        TELEGRAM_TOKEN
+    ).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(
+        CommandHandler("start", start)
+    )
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_handler(
+        CommandHandler("help", help_cmd)
+    )
+
+    app.add_handler(
+        CommandHandler("clear", clear)
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.VOICE,
+            handle_voice
+        )
+    )
 
     print("Eva Ultra Human (No Buttons) running...")
-    app.run_polling(timeout=30, drop_pending_updates=True)
+
+    app.run_polling(
+        timeout=30,
+        drop_pending_updates=True
+    )
 
 if __name__ == "__main__":
     main()
