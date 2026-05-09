@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from groq import Groq
 from supabase import create_client
+from duckduckgo_search import DDGS
 import random
 import os
 import json
@@ -84,6 +85,41 @@ def save_user(user_id, profile):
         "emotions": profile.get("emotions", [])
     }).execute()
 
+# ================== WEB SEARCH ==================
+
+def web_search(query):
+
+    results_text = ""
+
+    try:
+
+        with DDGS() as ddgs:
+
+            results = list(
+                ddgs.text(
+                    query,
+                    max_results=5
+                )
+            )
+
+        for r in results:
+
+            title = r.get("title", "")
+            body = r.get("body", "")
+
+            results_text += f"""
+Title: {title}
+
+Snippet: {body}
+
+"""
+
+    except Exception as e:
+
+        results_text = f"Search failed: {str(e)}"
+
+    return results_text
+
 # ================== TIME ==================
 def get_time_context():
     hour = datetime.now().hour
@@ -129,6 +165,10 @@ Human traits:
 - Can say things like "hmm", "I think", "maybe"
 - Slight imperfections are okay
 - Don’t sound like an assistant — sound like a person
+
+Internet:
+- If internet search results are available,
+use them naturally and accurately.
 
 Goal:
 Make the user feel like they’re talking to someone real, not a machine.
@@ -413,6 +453,64 @@ Return only the summary text.
             except:
                 pass
 
+        # ================== SEARCH DECISION ==================
+
+        search_prompt = f"""
+Decide if this user message requires internet search.
+
+Examples needing search:
+- latest news
+- current events
+- weather
+- today's information
+- modern facts
+- recent technology
+- live data
+
+Return ONLY:
+YES
+or
+NO
+
+User message:
+{user_text}
+"""
+
+        need_search = False
+        web_results = ""
+
+        try:
+
+            search_decision = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": search_prompt
+                    }
+                ]
+            )
+
+            decision = (
+                search_decision
+                .choices[0]
+                .message
+                .content
+                .strip()
+                .upper()
+            )
+
+            if "YES" in decision:
+
+                need_search = True
+
+                web_results = web_search(
+                    user_text
+                )
+
+        except:
+            pass
+
         time_context = get_time_context()
 
         messages = [
@@ -438,6 +536,9 @@ User summary:
 
 User emotional patterns:
 {profile.get('emotions', [])}
+
+Internet search results:
+{web_results}
 
 User notes:
 {profile['notes']}
