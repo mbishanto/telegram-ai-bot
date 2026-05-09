@@ -6,6 +6,7 @@ from groq import Groq
 import random
 import os
 import json
+import sqlite3
 from datetime import datetime
 
 # ================== KEEP ALIVE ==================
@@ -39,20 +40,51 @@ def get_client():
 user_memory = {}
 MAX_HISTORY = 12
 
-MEMORY_FILE = "memory.json"
+# ================== DATABASE ==================
+conn = sqlite3.connect("database.db", check_same_thread=False)
+cursor = conn.cursor()
 
-def load_memory():
-    try:
-        with open(MEMORY_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {}
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    name TEXT,
+    notes TEXT
+)
+""")
 
-def save_memory(data):
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(data, f)
+conn.commit()
 
-long_term_memory = load_memory()
+def get_user(user_id):
+    cursor.execute(
+        "SELECT name, notes FROM users WHERE user_id=?",
+        (user_id,)
+    )
+
+    row = cursor.fetchone()
+
+    if row:
+        return {
+            "name": row[0] or "",
+            "notes": json.loads(row[1]) if row[1] else []
+        }
+
+    return {
+        "name": "",
+        "notes": []
+    }
+
+def save_user(user_id, profile):
+    cursor.execute("""
+    INSERT OR REPLACE INTO users
+    (user_id, name, notes)
+    VALUES (?, ?, ?)
+    """, (
+        user_id,
+        profile["name"],
+        json.dumps(profile["notes"])
+    ))
+
+    conn.commit()
 
 # ================== TIME ==================
 def get_time_context():
@@ -134,8 +166,16 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("You can just talk to me.")
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.chat.id
+    user_id = str(update.message.chat.id)
     user_memory[user_id] = []
+
+    profile = {
+        "name": "",
+        "notes": []
+    }
+
+    save_user(user_id, profile)
+
     await update.message.reply_text("Conversation cleared.")
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -163,14 +203,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_memory[user_id].append({"role": "user", "content": user_text})
         user_memory[user_id] = user_memory[user_id][-MAX_HISTORY:]
 
-        if user_id not in long_term_memory:
-            long_term_memory[user_id] = {"name": "", "notes": []}
-
-        profile = long_term_memory[user_id]
+        profile = get_user(user_id)
 
         if "my name is" in user_text.lower():
             name = user_text.split("is")[-1].strip()
             profile["name"] = name
+
+        if "i like" in user_text.lower():
+            profile["notes"].append(user_text)
+
+        if len(profile["notes"]) > 20:
+            profile["notes"] = profile["notes"][-20:]
 
         time_context = get_time_context()
 
@@ -195,8 +238,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_memory[user_id].append({"role": "assistant", "content": reply})
 
-        long_term_memory[user_id] = profile
-        save_memory(long_term_memory)
+        save_user(user_id, profile)
 
         await update.message.reply_text(reply)
 
