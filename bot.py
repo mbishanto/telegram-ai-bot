@@ -5,6 +5,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, fil
 from groq import Groq
 from supabase import create_client
 from duckduckgo_search import DDGS
+import google.generativeai as genai
+from PIL import Image
 import random
 import os
 import json
@@ -29,6 +31,9 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 keys = os.getenv("GROQ_KEYS", "")
 GROQ_KEYS = keys.split(",") if keys else []
 
+gemini_keys = os.getenv("GEMINI_KEYS", "")
+GEMINI_KEYS = gemini_keys.split(",") if gemini_keys else []
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -38,8 +43,23 @@ if not TELEGRAM_TOKEN:
 if not GROQ_KEYS:
     raise ValueError("Missing GROQ_KEYS")
 
+if not GEMINI_KEYS:
+    raise ValueError("Missing GEMINI_KEYS")
+
 def get_client():
     return Groq(api_key=random.choice(GROQ_KEYS))
+
+def get_gemini_model():
+
+    api_key = random.choice(GEMINI_KEYS)
+
+    genai.configure(
+        api_key=api_key
+    )
+
+    return genai.GenerativeModel(
+        "gemini-1.5-flash"
+    )
 
 # ================== MEMORY ==================
 user_memory = {}
@@ -245,7 +265,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.message.chat.id)
         user_text = update.message.text
 
-        # Typing indicator
         await context.bot.send_chat_action(
             chat_id=user_id,
             action="typing"
@@ -265,293 +284,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         profile = get_user(user_id)
 
-        # ================== SAVE NAME ==================
-        if "my name is" in user_text.lower():
-            name = user_text.lower().split("my name is")[-1].strip()
-            profile["name"] = name.title()
-
         client = get_client()
-
-        # ================== ADVANCED MEMORY ==================
-        memory_prompt = f"""
-You are a memory manager for an AI assistant.
-
-Your task:
-Analyze the user's message and decide:
-
-1. Should memory be saved?
-2. Should old memory be updated?
-3. Should memory be deleted?
-4. What exact memory should be stored?
-
-Return ONLY valid JSON.
-
-Format:
-{{
-    "save": true or false,
-    "delete": true or false,
-    "memory": "memory text"
-}}
-
-User message:
-{user_text}
-
-Existing memories:
-{profile["notes"]}
-"""
-
-        try:
-
-            memory_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": memory_prompt
-                    }
-                ]
-            )
-
-            memory_result = memory_response.choices[0].message.content
-
-            json_match = re.search(r"\{.*\}", memory_result, re.DOTALL)
-
-            if json_match:
-                memory_data = json.loads(json_match.group())
-            else:
-                memory_data = {
-                    "save": False,
-                    "delete": False,
-                    "memory": ""
-                }
-
-            # DELETE MEMORY
-            if memory_data.get("delete"):
-
-                profile["notes"] = [
-                    note for note in profile["notes"]
-                    if memory_data["memory"].lower() not in note.lower()
-                ]
-
-            # SAVE OR UPDATE MEMORY
-            elif memory_data.get("save"):
-
-                updated = False
-
-                for i, note in enumerate(profile["notes"]):
-
-                    old_words = set(note.lower().split())
-                    new_words = set(memory_data["memory"].lower().split())
-
-                    similarity = len(
-                        old_words.intersection(new_words)
-                    )
-
-                    if similarity >= 3:
-                        profile["notes"][i] = memory_data["memory"]
-                        updated = True
-                        break
-
-                if not updated:
-                    profile["notes"].append(
-                        memory_data["memory"]
-                    )
-
-        except:
-            pass
-
-        # Limit memory size
-        if len(profile["notes"]) > 100:
-            profile["notes"] = profile["notes"][-100:]
-
-        # ================== EMOTIONAL MEMORY ==================
-
-        emotion_prompt = f"""
-Analyze the emotional state and behavioral pattern of this user message.
-
-Return ONLY short emotional observations.
-
-Examples:
-- User seems stressed about studies
-- User likes calm conversations
-- User is excited about gaming
-
-Keep it short.
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            emotion_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": emotion_prompt
-                    }
-                ]
-            )
-
-            emotion_memory = (
-                emotion_response
-                .choices[0]
-                .message
-                .content
-                .strip()
-            )
-
-            if emotion_memory:
-
-                if emotion_memory not in profile["emotions"]:
-                    profile["emotions"].append(
-                        emotion_memory
-                    )
-
-        except:
-            pass
-
-        # Limit emotion memory
-        if len(profile["emotions"]) > 30:
-            profile["emotions"] = profile["emotions"][-30:]
-
-        # ================== MEMORY SUMMARY ==================
-
-        if len(profile["notes"]) >= 5:
-
-            summary_prompt = f"""
-Create a clean long-term personality and memory summary.
-
-Keep it short and human-like.
-
-Memories:
-{profile["notes"]}
-
-Return only the summary text.
-"""
-
-            try:
-
-                summary_response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": summary_prompt
-                        }
-                    ]
-                )
-
-                profile["summary"] = (
-                    summary_response
-                    .choices[0]
-                    .message
-                    .content
-                )
-
-            except:
-                pass
-
-        # ================== SEARCH DECISION ==================
-
-        search_prompt = f"""
-Decide if this user message requires internet search.
-
-Examples needing search:
-- latest news
-- current events
-- weather
-- today's information
-- modern facts
-- recent technology
-- live data
-
-Return ONLY:
-YES
-or
-NO
-
-User message:
-{user_text}
-"""
-
-        need_search = False
-        web_results = ""
-
-        try:
-
-            search_decision = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": search_prompt
-                    }
-                ]
-            )
-
-            decision = (
-                search_decision
-                .choices[0]
-                .message
-                .content
-                .strip()
-                .upper()
-            )
-
-            if "YES" in decision:
-
-                need_search = True
-
-                web_results = web_search(
-                    user_text
-                )
-
-        except:
-            pass
-
-        time_context = get_time_context()
 
         messages = [
             {
                 "role": "system",
                 "content": SYSTEM_PROMPT
-            },
-
-            {
-                "role": "system",
-                "content": f"time: {time_context}"
-            },
-
-            {
-                "role": "system",
-                "content": f"""
-IMPORTANT USER MEMORY:
-
-User name: {profile['name']}
-
-User summary:
-{profile.get('summary', '')}
-
-User emotional patterns:
-{profile.get('emotions', [])}
-
-Internet search results:
-{web_results}
-
-User notes:
-{profile['notes']}
-
-You MUST remember these details permanently.
-Never forget the user's name or personal details unless they change them.
-Use this memory naturally in conversation.
-"""
-            },
-
-            {
-                "role": "system",
-                "content": f"user mood: {mood}"
             }
         ]
 
@@ -583,6 +321,75 @@ Use this memory naturally in conversation.
 
         await update.message.reply_text(
             f"Error: {str(e)}"
+        )
+
+# ================== IMAGE UNDERSTANDING ==================
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    try:
+
+        user_id = str(update.message.chat.id)
+
+        photo = update.message.photo[-1]
+
+        await context.bot.send_chat_action(
+            chat_id=user_id,
+            action="typing"
+        )
+
+        file = await context.bot.get_file(
+            photo.file_id
+        )
+
+        image_path = f"{user_id}.jpg"
+
+        await file.download_to_drive(
+            image_path
+        )
+
+        img = Image.open(image_path)
+
+        model = get_gemini_model()
+
+        caption = (
+            update.message.caption
+            if update.message.caption
+            else ""
+        )
+
+        vision_prompt = f"""
+You are Eva, a warm and intelligent AI assistant.
+
+Analyze this image naturally.
+
+If it contains:
+- homework → solve it
+- screenshot → explain it
+- text → read it
+- drawing → describe it
+- object → identify it
+
+User message:
+{caption}
+
+Be conversational and human-like.
+"""
+
+        response = model.generate_content([
+            vision_prompt,
+            img
+        ])
+
+        reply = response.text
+
+        await update.message.reply_text(
+            reply
+        )
+
+    except Exception as e:
+
+        await update.message.reply_text(
+            f"Image Error: {str(e)}"
         )
 
 # ================== VOICE ==================
@@ -622,6 +429,13 @@ def main():
         MessageHandler(
             filters.VOICE,
             handle_voice
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO,
+            handle_photo
         )
     )
 
