@@ -7,6 +7,7 @@ from supabase import create_client
 import random
 import os
 import json
+import re
 from datetime import datetime
 
 # ================== KEEP ALIVE ==================
@@ -221,29 +222,101 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name = user_text.lower().split("my name is")[-1].strip()
             profile["name"] = name.title()
 
-        # ================== SAVE MEMORY ==================
-        memory_keywords = [
-            "i like",
-            "i love",
-            "my favorite",
-            "remember this",
-            "i am",
-            "i work",
-            "i live",
-            "my birthday"
-        ]
+        client = get_client()
 
-        if any(k in user_text.lower() for k in memory_keywords):
+        # ================== ADVANCED MEMORY ==================
+        memory_prompt = f"""
+You are a memory manager for an AI assistant.
 
-            if user_text not in profile["notes"]:
-                profile["notes"].append(user_text)
+Your task:
+Analyze the user's message and decide:
 
-        if len(profile["notes"]) > 50:
-            profile["notes"] = profile["notes"][-50:]
+1. Should memory be saved?
+2. Should old memory be updated?
+3. Should memory be deleted?
+4. What exact memory should be stored?
+
+Return ONLY valid JSON.
+
+Format:
+{{
+    "save": true or false,
+    "delete": true or false,
+    "memory": "memory text"
+}}
+
+User message:
+{user_text}
+
+Existing memories:
+{profile["notes"]}
+"""
+
+        try:
+
+            memory_response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": memory_prompt
+                    }
+                ]
+            )
+
+            memory_result = memory_response.choices[0].message.content
+
+            json_match = re.search(r"\{.*\}", memory_result, re.DOTALL)
+
+            if json_match:
+                memory_data = json.loads(json_match.group())
+            else:
+                memory_data = {
+                    "save": False,
+                    "delete": False,
+                    "memory": ""
+                }
+
+            # DELETE MEMORY
+            if memory_data.get("delete"):
+
+                profile["notes"] = [
+                    note for note in profile["notes"]
+                    if memory_data["memory"].lower() not in note.lower()
+                ]
+
+            # SAVE OR UPDATE MEMORY
+            elif memory_data.get("save"):
+
+                updated = False
+
+                for i, note in enumerate(profile["notes"]):
+
+                    old_words = set(note.lower().split())
+                    new_words = set(memory_data["memory"].lower().split())
+
+                    similarity = len(
+                        old_words.intersection(new_words)
+                    )
+
+                    if similarity >= 3:
+                        profile["notes"][i] = memory_data["memory"]
+                        updated = True
+                        break
+
+                if not updated:
+                    profile["notes"].append(
+                        memory_data["memory"]
+                    )
+
+        except:
+            pass
+
+        # Limit memory size
+        if len(profile["notes"]) > 100:
+            profile["notes"] = profile["notes"][-100:]
 
         time_context = get_time_context()
-
-        client = get_client()
 
         messages = [
             {
@@ -301,10 +374,11 @@ Use this memory naturally in conversation.
         )
 
     except Exception as e:
-        print("Error:", e)
+        import traceback
+        traceback.print_exc()
 
         await update.message.reply_text(
-            "Something went wrong."
+            f"Error: {str(e)}"
         )
 
 # ================== VOICE ==================
