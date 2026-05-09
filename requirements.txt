@@ -2,3 +2,7 @@ python-telegram-bot
 groq
 flask
 supabase
+openai-whisper
+gtts
+pydub
+ffmpeg-python
