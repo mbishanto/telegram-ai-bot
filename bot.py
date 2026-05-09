@@ -62,12 +62,14 @@ def get_user(user_id):
     if data:
         return {
             "name": data[0].get("name", ""),
-            "notes": data[0].get("notes", [])
+            "notes": data[0].get("notes", []),
+            "summary": data[0].get("summary", "")
         }
 
     return {
         "name": "",
-        "notes": []
+        "notes": [],
+        "summary": ""
     }
 
 def save_user(user_id, profile):
@@ -75,7 +77,8 @@ def save_user(user_id, profile):
     supabase.table("users").upsert({
         "user_id": user_id,
         "name": profile["name"],
-        "notes": profile["notes"]
+        "notes": profile["notes"],
+        "summary": profile.get("summary", "")
     }).execute()
 
 # ================== TIME ==================
@@ -174,7 +177,8 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     profile = {
         "name": "",
-        "notes": []
+        "notes": [],
+        "summary": ""
     }
 
     save_user(user_id, profile)
@@ -316,6 +320,43 @@ Existing memories:
         if len(profile["notes"]) > 100:
             profile["notes"] = profile["notes"][-100:]
 
+        # ================== MEMORY SUMMARY ==================
+
+        if len(profile["notes"]) >= 5:
+
+            summary_prompt = f"""
+Create a clean long-term personality and memory summary.
+
+Keep it short and human-like.
+
+Memories:
+{profile["notes"]}
+
+Return only the summary text.
+"""
+
+            try:
+
+                summary_response = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": summary_prompt
+                        }
+                    ]
+                )
+
+                profile["summary"] = (
+                    summary_response
+                    .choices[0]
+                    .message
+                    .content
+                )
+
+            except:
+                pass
+
         time_context = get_time_context()
 
         messages = [
@@ -335,6 +376,9 @@ Existing memories:
 IMPORTANT USER MEMORY:
 
 User name: {profile['name']}
+
+User summary:
+{profile.get('summary', '')}
 
 User notes:
 {profile['notes']}
