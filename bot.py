@@ -6,7 +6,7 @@ from groq import Groq
 import random
 import os
 import json
-import sqlite3
+import mysql.connector
 from datetime import datetime
 
 # ================== KEEP ALIVE ==================
@@ -41,22 +41,29 @@ user_memory = {}
 MAX_HISTORY = 100
 
 # ================== DATABASE ==================
-conn = sqlite3.connect("database.db", check_same_thread=False)
-cursor = conn.cursor()
+db = mysql.connector.connect(
+    host=os.getenv("DB_HOST"),
+    port=int(os.getenv("DB_PORT", 3306)),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
+    database=os.getenv("DB_NAME")
+)
+
+cursor = db.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    user_id TEXT PRIMARY KEY,
+    user_id VARCHAR(255) PRIMARY KEY,
     name TEXT,
-    notes TEXT
+    notes LONGTEXT
 )
 """)
 
-conn.commit()
+db.commit()
 
 def get_user(user_id):
     cursor.execute(
-        "SELECT name, notes FROM users WHERE user_id=?",
+        "SELECT name, notes FROM users WHERE user_id=%s",
         (user_id,)
     )
 
@@ -75,26 +82,32 @@ def get_user(user_id):
 
 def save_user(user_id, profile):
     cursor.execute("""
-    INSERT OR REPLACE INTO users
-    (user_id, name, notes)
-    VALUES (?, ?, ?)
+    INSERT INTO users (user_id, name, notes)
+    VALUES (%s, %s, %s)
+    ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    notes = VALUES(notes)
     """, (
         user_id,
         profile["name"],
         json.dumps(profile["notes"])
     ))
 
-    conn.commit()
+    db.commit()
 
 # ================== TIME ==================
 def get_time_context():
     hour = datetime.now().hour
+
     if 5 <= hour < 12:
         return "morning"
+
     elif 12 <= hour < 18:
         return "afternoon"
+
     elif 18 <= hour < 24:
         return "evening"
+
     return "night"
 
 # ================== EVA PERSONALITY ==================
