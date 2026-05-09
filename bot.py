@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from groq import Groq
 from supabase import create_client
+from sentence_transformers import SentenceTransformer
 import random
 import os
 import json
@@ -44,6 +45,10 @@ def get_client():
 user_memory = {}
 MAX_HISTORY = 1000
 
+embedding_model = SentenceTransformer(
+    "all-MiniLM-L6-v2"
+)
+
 # ================== DATABASE ==================
 supabase = create_client(
     SUPABASE_URL,
@@ -83,6 +88,38 @@ def save_user(user_id, profile):
         "summary": profile.get("summary", ""),
         "emotions": profile.get("emotions", [])
     }).execute()
+
+# ================== VECTOR MEMORY ==================
+
+def save_vector_memory(user_id, memory_text):
+
+    embedding = embedding_model.encode(
+        memory_text
+    ).tolist()
+
+    supabase.table("memory_vectors").insert({
+        "user_id": user_id,
+        "memory": memory_text,
+        "embedding": embedding
+    }).execute()
+
+def search_memories(user_id, query):
+
+    query_embedding = embedding_model.encode(
+        query
+    ).tolist()
+
+    response = supabase.rpc(
+        "match_memories",
+        {
+            "query_embedding": query_embedding,
+            "match_user_id": user_id,
+            "match_threshold": 0.5,
+            "match_count": 5
+        }
+    ).execute()
+
+    return response.data
 
 # ================== TIME ==================
 def get_time_context():
@@ -225,6 +262,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         profile = get_user(user_id)
 
+        relevant_memories = search_memories(
+            user_id,
+            user_text
+        )
+
         # ================== SAVE NAME ==================
         if "my name is" in user_text.lower():
             name = user_text.lower().split("my name is")[-1].strip()
@@ -314,6 +356,11 @@ Existing memories:
 
                 if not updated:
                     profile["notes"].append(
+                        memory_data["memory"]
+                    )
+
+                    save_vector_memory(
+                        user_id,
                         memory_data["memory"]
                     )
 
@@ -439,6 +486,9 @@ User summary:
 User emotional patterns:
 {profile.get('emotions', [])}
 
+Relevant semantic memories:
+{relevant_memories}
+
 User notes:
 {profile['notes']}
 
@@ -483,11 +533,13 @@ Use this memory naturally in conversation.
         await update.message.reply_text(
             f"Error: {str(e)}"
         )
+
 # ================== VOICE ==================
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Voice received."
     )
+
 # ================== START ==================
 def main():
     keep_alive()
