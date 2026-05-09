@@ -500,26 +500,20 @@ User message:
                 .upper()
             )
 
-
-
             if "YES" in decision:
 
-    need_search = True
+                need_search = True
 
-    web_results = web_search(
-        user_text
-    )
+                web_results = web_search(
+                    user_text
+                )
+                
+                print(web_results)
 
-    print(web_results)
-
-    await update.message.reply_text(
-        f"DEBUG SEARCH RESULTS:\n\n{web_results[:1000]}"
-    )
-
-
-
+               await update.message.reply_text(
+                   f"DEBUG SEARCH RESULTS:\n\n{web_results[:1000]}"
+               )
         
-
         except:
             pass
 
