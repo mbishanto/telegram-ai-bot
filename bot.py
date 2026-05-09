@@ -3,10 +3,10 @@ from threading import Thread
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from groq import Groq
+from supabase import create_client
 import random
 import os
 import json
-import mysql.connector
 from datetime import datetime
 
 # ================== KEEP ALIVE ==================
@@ -27,6 +27,9 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 keys = os.getenv("GROQ_KEYS", "")
 GROQ_KEYS = keys.split(",") if keys else []
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
 if not TELEGRAM_TOKEN:
     raise ValueError("Missing TELEGRAM_TOKEN")
 
@@ -41,38 +44,24 @@ user_memory = {}
 MAX_HISTORY = 100
 
 # ================== DATABASE ==================
-db = mysql.connector.connect(
-    host=os.getenv("DB_HOST"),
-    port=int(os.getenv("DB_PORT", 3306)),
-    user=os.getenv("DB_USER"),
-    password=os.getenv("DB_PASSWORD"),
-    database=os.getenv("DB_NAME")
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
 )
-
-cursor = db.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id VARCHAR(255) PRIMARY KEY,
-    name TEXT,
-    notes LONGTEXT
-)
-""")
-
-db.commit()
 
 def get_user(user_id):
-    cursor.execute(
-        "SELECT name, notes FROM users WHERE user_id=%s",
-        (user_id,)
-    )
 
-    row = cursor.fetchone()
+    response = supabase.table("users") \
+        .select("*") \
+        .eq("user_id", user_id) \
+        .execute()
 
-    if row:
+    data = response.data
+
+    if data:
         return {
-            "name": row[0] or "",
-            "notes": json.loads(row[1]) if row[1] else []
+            "name": data[0].get("name", ""),
+            "notes": data[0].get("notes", [])
         }
 
     return {
@@ -81,19 +70,12 @@ def get_user(user_id):
     }
 
 def save_user(user_id, profile):
-    cursor.execute("""
-    INSERT INTO users (user_id, name, notes)
-    VALUES (%s, %s, %s)
-    ON DUPLICATE KEY UPDATE
-    name = VALUES(name),
-    notes = VALUES(notes)
-    """, (
-        user_id,
-        profile["name"],
-        json.dumps(profile["notes"])
-    ))
 
-    db.commit()
+    supabase.table("users").upsert({
+        "user_id": user_id,
+        "name": profile["name"],
+        "notes": profile["notes"]
+    }).execute()
 
 # ================== TIME ==================
 def get_time_context():
@@ -314,7 +296,9 @@ Use this memory naturally in conversation.
 
         save_user(user_id, profile)
 
-        await update.message.reply_text(reply)
+        await update.message.reply_text(
+            reply
+        )
 
     except Exception as e:
         print("Error:", e)
