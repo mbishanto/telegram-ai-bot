@@ -42,7 +42,7 @@ def get_client():
 
 # ================== MEMORY ==================
 user_memory = {}
-MAX_HISTORY = 100
+MAX_HISTORY = 1000
 
 # ================== DATABASE ==================
 supabase = create_client(
