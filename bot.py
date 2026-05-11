@@ -119,14 +119,30 @@ def get_user(user_id):
             "name": data[0].get("name", ""),
             "notes": data[0].get("notes", []),
             "summary": data[0].get("summary", ""),
-            "emotions": data[0].get("emotions", [])
+            "emotions": data[0].get("emotions", []),
+
+            # NEW
+            "relationship": data[0].get("relationship", {
+                "friendship_level": 0,
+                "interaction_count": 0,
+                "favorite_topics": [],
+                "conversation_style": ""
+            })
         }
 
     return {
         "name": "",
         "notes": [],
         "summary": "",
-        "emotions": []
+        "emotions": [],
+
+        # NEW
+        "relationship": {
+            "friendship_level": 0,
+            "interaction_count": 0,
+            "favorite_topics": [],
+            "conversation_style": ""
+        }
     }
 
 def save_user(user_id, profile):
@@ -136,7 +152,10 @@ def save_user(user_id, profile):
         "name": profile["name"],
         "notes": profile["notes"],
         "summary": profile.get("summary", ""),
-        "emotions": profile.get("emotions", [])
+        "emotions": profile.get("emotions", []),
+
+        # NEW
+        "relationship": profile.get("relationship", {})
     }).execute()
 
 # ================== WEB SEARCH ==================
@@ -305,7 +324,13 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "name": "",
         "notes": [],
         "summary": "",
-        "emotions": []
+        "emotions": [],
+        "relationship": {
+            "friendship_level": 0,
+            "interaction_count": 0,
+            "favorite_topics": [],
+            "conversation_style": ""
+        }
     }
 
     save_user(user_id, profile)
@@ -350,6 +375,114 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         profile = get_user(user_id)
 
+        client = get_client()
+
+        # ================== RELATIONSHIP MEMORY ==================
+        relationship = profile.get(
+            "relationship",
+            {}
+        )
+
+        relationship["interaction_count"] = (
+            relationship.get(
+                "interaction_count",
+                0
+            ) + 1
+        )
+
+        if relationship["interaction_count"] > 10:
+            relationship["friendship_level"] = 1
+
+        if relationship["interaction_count"] > 30:
+            relationship["friendship_level"] = 2
+
+        if relationship["interaction_count"] > 60:
+            relationship["friendship_level"] = 3
+
+        if relationship["interaction_count"] > 120:
+            relationship["friendship_level"] = 4
+
+        topic_prompt = f"""
+Detect recurring conversation topic.
+
+Return ONLY short topic.
+
+User message:
+{user_text}
+"""
+
+        try:
+
+            topic_response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": topic_prompt
+                    }
+                ]
+            )
+
+            topic = (
+                topic_response
+                .choices[0]
+                .message
+                .content
+                .strip()
+                .lower()
+            )
+
+            if topic:
+
+                topics = relationship.get(
+                    "favorite_topics",
+                    []
+                )
+
+                if topic not in topics:
+                    topics.append(topic)
+
+                relationship["favorite_topics"] = topics[-15:]
+
+        except:
+            pass
+
+        style_prompt = f"""
+Analyze user's conversation style.
+
+Return short result.
+
+User message:
+{user_text}
+"""
+
+        try:
+
+            style_response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": style_prompt
+                    }
+                ]
+            )
+
+            style = (
+                style_response
+                .choices[0]
+                .message
+                .content
+                .strip()
+            )
+
+            relationship["conversation_style"] = style
+
+        except:
+            pass
+
+        profile["relationship"] = relationship
+
         # ================== SAVE NAME ==================
         if "my name is" in user_text.lower():
 
@@ -358,8 +491,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )[-1].strip()
 
             profile["name"] = name.title()
-
-        client = get_client()
 
         # ================== ADVANCED MEMORY ==================
         memory_prompt = f"""
@@ -624,6 +755,9 @@ User summary:
 
 User emotional patterns:
 {profile.get('emotions', [])}
+
+Relationship memory:
+{profile.get('relationship', {})}
 
 Internet search results:
 {web_results}
