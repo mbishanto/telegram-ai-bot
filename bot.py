@@ -349,7 +349,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         img = Image.open(image_path)
 
-        model = get_gemini_model()
+        
+        models = genai.list_models()
+
+        model_names = []
+
+        for m in models:
+        model_names.append(m.name)
+
+        await update.message.reply_text(
+        "\n".join(model_names[:20])
+        )
+
+        return
+
+
+
+
+        
 
         caption = (
             update.message.caption
