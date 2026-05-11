@@ -349,59 +349,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         img = Image.open(image_path)
 
-        
         models = genai.list_models()
 
         model_names = []
 
         for m in models:
-        model_names.append(m.name)
+            model_names.append(m.name)
 
         await update.message.reply_text(
-        "\n".join(model_names[:20])
+            "\n".join(model_names[:20])
         )
 
         return
-
-
-
-
-        
-
-        caption = (
-            update.message.caption
-            if update.message.caption
-            else ""
-        )
-
-        vision_prompt = f"""
-You are Eva, a warm and intelligent AI assistant.
-
-Analyze this image naturally.
-
-If it contains:
-- homework → solve it
-- screenshot → explain it
-- text → read it
-- drawing → describe it
-- object → identify it
-
-User message:
-{caption}
-
-Be conversational and human-like.
-"""
-
-        response = model.generate_content([
-            vision_prompt,
-            img
-        ])
-
-        reply = response.text
-
-        await update.message.reply_text(
-            reply
-        )
 
     except Exception as e:
 
