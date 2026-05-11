@@ -58,7 +58,7 @@ def get_gemini_model():
     )
 
     return genai.GenerativeModel(
-        "gemini-1.5-flash"
+        "gemini-pro-vision"
     )
 
 # ================== MEMORY ==================
