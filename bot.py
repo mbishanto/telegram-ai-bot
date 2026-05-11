@@ -601,9 +601,70 @@ Existing memories:
         except:
             pass
 
-        # ================== LIMIT MEMORY ==================
-        if len(profile["notes"]) > 100:
-            profile["notes"] = profile["notes"][-100:]
+        # ================== SMART FORGETTING ==================
+
+        important_keywords = [
+            "name",
+            "birthday",
+            "family",
+            "study",
+            "job",
+            "work",
+            "favorite",
+            "relationship",
+            "emotion",
+            "goal",
+            "dream",
+            "important"
+        ]
+
+        cleaned_notes = []
+
+        for note in profile["notes"]:
+
+            note_lower = note.lower()
+
+            importance_score = 0
+
+            # keyword importance
+            for keyword in important_keywords:
+
+                if keyword in note_lower:
+                    importance_score += 2
+
+            # longer memories are usually meaningful
+            if len(note.split()) > 5:
+                importance_score += 1
+
+            # emotional memories
+            emotional_words = [
+                "sad",
+                "happy",
+                "stress",
+                "love",
+                "fear",
+                "excited"
+            ]
+
+            for word in emotional_words:
+
+                if word in note_lower:
+                    importance_score += 2
+
+            # keep important memories
+            if importance_score >= 2:
+                cleaned_notes.append(note)
+
+        # keep recent memories too
+        recent_notes = profile["notes"][-20:]
+
+        for note in recent_notes:
+
+            if note not in cleaned_notes:
+                cleaned_notes.append(note)
+
+        # final memory limit
+        profile["notes"] = cleaned_notes[-80:]
 
         # ================== EMOTIONAL MEMORY ==================
         emotion_prompt = f"""
