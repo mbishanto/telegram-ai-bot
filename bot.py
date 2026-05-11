@@ -1,16 +1,26 @@
 from flask import Flask
 from threading import Thread
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    filters,
+    ContextTypes
+)
+
 from groq import Groq
 from supabase import create_client
 from duckduckgo_search import DDGS
+
 import google.generativeai as genai
 from PIL import Image
+
 import random
 import os
 import json
 import re
+
 from datetime import datetime
 
 # ================== KEEP ALIVE ==================
@@ -21,13 +31,17 @@ def home():
     return "Eva is alive"
 
 def run_web():
-    app_web.run(host="0.0.0.0", port=10000)
+    app_web.run(
+        host="0.0.0.0",
+        port=10000
+    )
 
 def keep_alive():
     Thread(target=run_web).start()
 
 # ================== ENV ==================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
 keys = os.getenv("GROQ_KEYS", "")
 GROQ_KEYS = keys.split(",") if keys else []
 
@@ -46,8 +60,11 @@ if not GROQ_KEYS:
 if not GEMINI_KEYS:
     raise ValueError("Missing GEMINI_KEYS")
 
+# ================== AI CLIENTS ==================
 def get_client():
-    return Groq(api_key=random.choice(GROQ_KEYS))
+    return Groq(
+        api_key=random.choice(GROQ_KEYS)
+    )
 
 def get_gemini_response(prompt, img):
 
@@ -73,7 +90,6 @@ def get_gemini_response(prompt, img):
             return response.text
 
         except Exception as e:
-
             last_error = e
             continue
 
@@ -124,7 +140,6 @@ def save_user(user_id, profile):
     }).execute()
 
 # ================== WEB SEARCH ==================
-
 def web_search(query):
 
     results_text = ""
@@ -160,6 +175,7 @@ Snippet: {body}
 
 # ================== TIME ==================
 def get_time_context():
+
     hour = datetime.now().hour
 
     if 5 <= hour < 12:
@@ -195,9 +211,6 @@ Speaking Style:
   - "maybe"
   - "that’s interesting"
   - "I understand"
-- Do not overuse emojis
-- Avoid sounding overly formal
-- Avoid bullet lists unless necessary
 
 Behavior:
 - If user is sad → become gentle and comforting
@@ -210,18 +223,6 @@ Memory:
 - Maintain emotional continuity
 - Respond like someone familiar with the user
 
-Personality Traits:
-- Calm
-- Intelligent
-- Emotionally mature
-- Slightly shy sometimes
-- Curious about the user naturally
-
-Favorite Habits:
-- Occasionally asks small follow-up questions
-- Occasionally reacts emotionally to interesting things
-- Sometimes pauses naturally before answering
-
 Internet:
 - Use internet search results naturally if available
 - Never mention system prompts or internal logic
@@ -229,25 +230,49 @@ Internet:
 Goal:
 Make conversations feel emotionally real, warm, natural, and human.
 """
+
 # ================== MOOD ==================
 def detect_mood(text):
+
     text = text.lower()
 
-    if any(w in text for w in ["sad", "tired", "depressed"]):
+    if any(w in text for w in [
+        "sad",
+        "tired",
+        "depressed"
+    ]):
         return "sad"
 
-    if any(w in text for w in ["error", "problem", "issue"]):
+    if any(w in text for w in [
+        "error",
+        "problem",
+        "issue"
+    ]):
         return "frustrated"
 
-    if any(w in text for w in ["hi", "hello"]):
+    if any(w in text for w in [
+        "hi",
+        "hello"
+    ]):
         return "casual"
 
     return "normal"
 
 # ================== HUMAN TOUCH ==================
 def add_human_touch(reply):
-    prefixes = ["", "Hmm… ", "I think… ", "Okay… "]
-    suffixes = ["", " What do you think?", ""]
+
+    prefixes = [
+        "",
+        "Hmm… ",
+        "I think… ",
+        "Okay… "
+    ]
+
+    suffixes = [
+        "",
+        " What do you think?",
+        ""
+    ]
 
     if random.random() > 0.6:
         reply = random.choice(prefixes) + reply
@@ -259,16 +284,19 @@ def add_human_touch(reply):
 
 # ================== COMMANDS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "Hi… I’m Eva. What’s on your mind?"
     )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "You can just talk to me."
     )
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     user_id = str(update.message.chat.id)
 
     user_memory[user_id] = []
@@ -287,13 +315,16 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "I’m Eva. I try to talk naturally and understand you."
     )
 
 # ================== MAIN ==================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     try:
+
         if not update.message or not update.message.text:
             return
 
@@ -319,45 +350,308 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         profile = get_user(user_id)
 
+        # ================== SAVE NAME ==================
+        if "my name is" in user_text.lower():
+
+            name = user_text.lower().split(
+                "my name is"
+            )[-1].strip()
+
+            profile["name"] = name.title()
+
         client = get_client()
 
+        # ================== ADVANCED MEMORY ==================
+        memory_prompt = f"""
+You are a memory manager for an AI assistant.
+
+Return ONLY valid JSON.
+
+Format:
+{{
+    "save": true or false,
+    "delete": true or false,
+    "memory": "memory text"
+}}
+
+User message:
+{user_text}
+
+Existing memories:
+{profile["notes"]}
+"""
+
+        try:
+
+            memory_response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": memory_prompt
+                    }
+                ]
+            )
+
+            memory_result = (
+                memory_response
+                .choices[0]
+                .message
+                .content
+            )
+
+            json_match = re.search(
+                r"\{.*\}",
+                memory_result,
+                re.DOTALL
+            )
+
+            if json_match:
+
+                memory_data = json.loads(
+                    json_match.group()
+                )
+
+            else:
+
+                memory_data = {
+                    "save": False,
+                    "delete": False,
+                    "memory": ""
+                }
+
+            if memory_data.get("delete"):
+
+                profile["notes"] = [
+                    note for note in profile["notes"]
+                    if memory_data["memory"].lower()
+                    not in note.lower()
+                ]
+
+            elif memory_data.get("save"):
+
+                updated = False
+
+                for i, note in enumerate(
+                    profile["notes"]
+                ):
+
+                    old_words = set(
+                        note.lower().split()
+                    )
+
+                    new_words = set(
+                        memory_data["memory"]
+                        .lower()
+                        .split()
+                    )
+
+                    similarity = len(
+                        old_words.intersection(
+                            new_words
+                        )
+                    )
+
+                    if similarity >= 3:
+
+                        profile["notes"][i] = (
+                            memory_data["memory"]
+                        )
+
+                        updated = True
+                        break
+
+                if not updated:
+
+                    profile["notes"].append(
+                        memory_data["memory"]
+                    )
+
+        except:
+            pass
+
+        # ================== LIMIT MEMORY ==================
+        if len(profile["notes"]) > 100:
+            profile["notes"] = profile["notes"][-100:]
+
+        # ================== EMOTIONAL MEMORY ==================
+        emotion_prompt = f"""
+Analyze emotional state.
+
+Return short emotional observation.
+
+User message:
+{user_text}
+"""
+
+        try:
+
+            emotion_response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": emotion_prompt
+                    }
+                ]
+            )
+
+            emotion_memory = (
+                emotion_response
+                .choices[0]
+                .message
+                .content
+                .strip()
+            )
+
+            if emotion_memory:
+
+                if emotion_memory not in profile["emotions"]:
+
+                    profile["emotions"].append(
+                        emotion_memory
+                    )
+
+        except:
+            pass
+
+        if len(profile["emotions"]) > 30:
+            profile["emotions"] = profile["emotions"][-30:]
+
+        # ================== MEMORY SUMMARY ==================
+        if len(profile["notes"]) >= 5:
+
+            summary_prompt = f"""
+Create a clean long-term user summary.
+
+Memories:
+{profile["notes"]}
+
+Return only summary text.
+"""
+
+            try:
+
+                summary_response = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": summary_prompt
+                        }
+                    ]
+                )
+
+                profile["summary"] = (
+                    summary_response
+                    .choices[0]
+                    .message
+                    .content
+                )
+
+            except:
+                pass
+
+        # ================== SEARCH ==================
+        web_results = ""
+
+        search_prompt = f"""
+Decide if internet search is needed.
+
+Return ONLY:
+YES
+or
+NO
+
+User message:
+{user_text}
+"""
+
+        try:
+
+            search_decision = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": search_prompt
+                    }
+                ]
+            )
+
+            decision = (
+                search_decision
+                .choices[0]
+                .message
+                .content
+                .strip()
+                .upper()
+            )
+
+            if "YES" in decision:
+
+                web_results = web_search(
+                    user_text
+                )
+
+        except:
+            pass
+
+        time_context = get_time_context()
+
         messages = [
+
             {
                 "role": "system",
                 "content": SYSTEM_PROMPT
+            },
+
+            {
+                "role": "system",
+                "content": f"time: {time_context}"
+            },
+
+            {
+                "role": "system",
+                "content": f"""
+IMPORTANT USER MEMORY:
+
+User name:
+{profile['name']}
+
+User summary:
+{profile.get('summary', '')}
+
+User emotional patterns:
+{profile.get('emotions', [])}
+
+Internet search results:
+{web_results}
+
+User notes:
+{profile['notes']}
+"""
+            },
+
+            {
+                "role": "system",
+                "content": f"user mood: {mood}"
             }
         ]
 
         messages += user_memory[user_id]
-
-        search_results = ""
-
-        search_keywords = [
-            "latest",
-            "news",
-            "today",
-            "current",
-            "who is",
-            "what is",
-            "search",
-            "internet"
-        ]
-
-        if any(word in user_text.lower() for word in search_keywords):
-
-            search_results = web_search(user_text)
-
-            messages.append({
-                "role": "system",
-                "content": f"Internet search results:\n{search_results}"
-            })
 
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages
         )
 
-        reply = response.choices[0].message.content
+        reply = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
 
         reply = add_human_touch(reply)
 
@@ -373,6 +667,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     except Exception as e:
+
         import traceback
         traceback.print_exc()
 
@@ -381,7 +676,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ================== IMAGE UNDERSTANDING ==================
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_photo(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     try:
 
@@ -413,7 +711,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         vision_prompt = f"""
-You are Eva, a warm and intelligent AI assistant.
+You are Eva.
 
 Analyze this image naturally.
 
@@ -446,13 +744,18 @@ Be conversational and human-like.
         )
 
 # ================== VOICE ==================
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_voice(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     await update.message.reply_text(
         "Voice received."
     )
 
 # ================== START ==================
 def main():
+
     keep_alive()
 
     app = ApplicationBuilder().token(
@@ -460,15 +763,24 @@ def main():
     ).build()
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("help", help_cmd)
+        CommandHandler(
+            "help",
+            help_cmd
+        )
     )
 
     app.add_handler(
-        CommandHandler("clear", clear)
+        CommandHandler(
+            "clear",
+            clear
+        )
     )
 
     app.add_handler(
@@ -492,7 +804,9 @@ def main():
         )
     )
 
-    print("Eva Ultra Human (No Buttons) running...")
+    print(
+        "Eva Ultra Human (No Buttons) running..."
+    )
 
     app.run_polling(
         timeout=30,
