@@ -58,7 +58,7 @@ def get_gemini_model():
     )
 
     return genai.GenerativeModel(
-        "gemini-pro-vision"
+        "models/gemini-2.0-flash"
     )
 
 # ================== MEMORY ==================
@@ -295,6 +295,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         messages += user_memory[user_id]
 
+        search_results = ""
+
+        search_keywords = [
+            "latest",
+            "news",
+            "today",
+            "current",
+            "who is",
+            "what is",
+            "search",
+            "internet"
+        ]
+
+        if any(word in user_text.lower() for word in search_keywords):
+
+            search_results = web_search(user_text)
+
+            messages.append({
+                "role": "system",
+                "content": f"Internet search results:\n{search_results}"
+            })
+
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages
@@ -349,24 +371,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         img = Image.open(image_path)
 
-        api_key = random.choice(GEMINI_KEYS)
-
-        genai.configure(
-            api_key=api_key
-        )
-
-        models = genai.list_models()
-
-        model_names = []
-
-        for m in models:
-            model_names.append(m.name)
-
-        await update.message.reply_text(
-            "\n".join(model_names[:20])
-        )
-
-        return
+        model = get_gemini_model()
 
         caption = (
             update.message.caption
