@@ -49,17 +49,35 @@ if not GEMINI_KEYS:
 def get_client():
     return Groq(api_key=random.choice(GROQ_KEYS))
 
-def get_gemini_model():
+def get_gemini_response(prompt, img):
 
-    api_key = random.choice(GEMINI_KEYS)
+    last_error = None
 
-    genai.configure(
-        api_key=api_key
-    )
+    for api_key in GEMINI_KEYS:
 
-    return genai.GenerativeModel(
-        "models/gemini-2.0-flash-lite"
-    )
+        try:
+
+            genai.configure(
+                api_key=api_key
+            )
+
+            model = genai.GenerativeModel(
+                "models/gemini-2.0-flash-lite"
+            )
+
+            response = model.generate_content([
+                prompt,
+                img
+            ])
+
+            return response.text
+
+        except Exception as e:
+
+            last_error = e
+            continue
+
+    return f"All Gemini keys failed:\n{str(last_error)}"
 
 # ================== MEMORY ==================
 user_memory = {}
@@ -371,8 +389,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         img = Image.open(image_path)
 
-        model = get_gemini_model()
-
         caption = (
             update.message.caption
             if update.message.caption
@@ -397,12 +413,10 @@ User message:
 Be conversational and human-like.
 """
 
-        response = model.generate_content([
+        reply = get_gemini_response(
             vision_prompt,
             img
-        ])
-
-        reply = response.text
+        )
 
         await update.message.reply_text(
             reply
