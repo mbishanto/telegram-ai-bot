@@ -29,7 +29,7 @@ from autonomous_behavior import AutonomousBehavior
 from context_summarizer import ContextSummarizer
 from dream_engine import DreamEngine
 from emotion_tracker import EmotionTracker
-from memory_decay import MemoryDecay
+from memory_decay import MemoryDecaySystem
 from memory_importance import MemoryImportance
 from mood_memory import MoodMemory
 from personality_engine import PersonalityEngine
@@ -80,7 +80,7 @@ if not GEMINI_KEYS:
 
 # ================== ADVANCED AI INIT ==================
 emotion_tracker = EmotionTracker()
-memory_decay = MemoryDecay()
+memory_decay = MemoryDecaySystem()
 memory_importance = MemoryImportance()
 mood_memory = MoodMemory()
 personality_engine = PersonalityEngine()
