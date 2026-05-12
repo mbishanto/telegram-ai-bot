@@ -20,6 +20,7 @@ import random
 import os
 import json
 import re
+import asyncio
 
 from datetime import datetime
 
@@ -436,402 +437,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if relationship["interaction_count"] > 120:
             relationship["friendship_level"] = 4
 
-        topic_prompt = f"""
-Detect recurring conversation topic.
-
-Return ONLY short topic.
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            topic_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": topic_prompt
-                    }
-                ]
-            )
-
-            topic = (
-                topic_response
-                .choices[0]
-                .message
-                .content
-                .strip()
-                .lower()
-            )
-
-            if topic:
-
-                topics = relationship.get(
-                    "favorite_topics",
-                    []
-                )
-
-                if topic not in topics:
-                    topics.append(topic)
-
-                relationship["favorite_topics"] = topics[-15:]
-
-        except:
-            pass
-
-        style_prompt = f"""
-Analyze user's conversation style.
-
-Return short result.
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            style_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": style_prompt
-                    }
-                ]
-            )
-
-            style = (
-                style_response
-                .choices[0]
-                .message
-                .content
-                .strip()
-            )
-
-            relationship["conversation_style"] = style
-
-        except:
-            pass
-
         profile["relationship"] = relationship
 
-        # ================== SAVE NAME ==================
-        if "my name is" in user_text.lower():
-
-            name = user_text.lower().split(
-                "my name is"
-            )[-1].strip()
-
-            profile["name"] = name.title()
-
-        # ================== ADVANCED MEMORY ==================
-        memory_prompt = f"""
-You are a memory manager for an AI assistant.
-
-Return ONLY valid JSON.
-
-Format:
-{{
-    "save": true or false,
-    "delete": true or false,
-    "memory": "memory text"
-}}
-
-User message:
-{user_text}
-
-Existing memories:
-{profile["notes"]}
-"""
-
-        try:
-
-            memory_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": memory_prompt
-                    }
-                ]
-            )
-
-            memory_result = (
-                memory_response
-                .choices[0]
-                .message
-                .content
-            )
-
-            json_match = re.search(
-                r"\{.*\}",
-                memory_result,
-                re.DOTALL
-            )
-
-            if json_match:
-
-                memory_data = json.loads(
-                    json_match.group()
-                )
-
-            else:
-
-                memory_data = {
-                    "save": False,
-                    "delete": False,
-                    "memory": ""
-                }
-
-            if memory_data.get("delete"):
-
-                profile["notes"] = [
-                    note for note in profile["notes"]
-                    if memory_data["memory"].lower()
-                    not in note.lower()
-                ]
-
-            elif memory_data.get("save"):
-
-                updated = False
-
-                for i, note in enumerate(
-                    profile["notes"]
-                ):
-
-                    old_words = set(
-                        note.lower().split()
-                    )
-
-                    new_words = set(
-                        memory_data["memory"]
-                        .lower()
-                        .split()
-                    )
-
-                    similarity = len(
-                        old_words.intersection(
-                            new_words
-                        )
-                    )
-
-                    if similarity >= 3:
-
-                        profile["notes"][i] = (
-                            memory_data["memory"]
-                        )
-
-                        updated = True
-                        break
-
-                if not updated:
-
-                    profile["notes"].append(
-                        memory_data["memory"]
-                    )
-
-        except:
-            pass
-
         # ================== SMART FORGETTING ==================
-
-        important_keywords = [
-            "name",
-            "birthday",
-            "family",
-            "study",
-            "job",
-            "work",
-            "favorite",
-            "relationship",
-            "emotion",
-            "goal",
-            "dream",
-            "important"
-        ]
-
-        cleaned_notes = []
-
-        for note in profile["notes"]:
-
-            note_lower = note.lower()
-
-            importance_score = 0
-
-            # keyword importance
-            for keyword in important_keywords:
-
-                if keyword in note_lower:
-                    importance_score += 2
-
-            # longer memories are usually meaningful
-            if len(note.split()) > 5:
-                importance_score += 1
-
-            # emotional memories
-            emotional_words = [
-                "sad",
-                "happy",
-                "stress",
-                "love",
-                "fear",
-                "excited"
-            ]
-
-            for word in emotional_words:
-
-                if word in note_lower:
-                    importance_score += 2
-
-            # keep important memories
-            if importance_score >= 2:
-                cleaned_notes.append(note)
-
-        # keep recent memories too
-        recent_notes = profile["notes"][-20:]
-
-        for note in recent_notes:
-
-            if note not in cleaned_notes:
-                cleaned_notes.append(note)
+        cleaned_notes = profile["notes"][-80:]
 
         # ================== ADVANCED MEMORY DECAY ==================
-try:
-
-    profile["notes"] = (
-        memory_decay.clean_memories(
-            cleaned_notes
-        )
-    )
-
-except:
-
-    profile["notes"] = cleaned_notes[-80:]
-
-        # ================== EMOTIONAL MEMORY ==================
-        emotion_prompt = f"""
-Analyze emotional state.
-
-Return short emotional observation.
-
-User message:
-{user_text}
-"""
-
         try:
 
-            emotion_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": emotion_prompt
-                    }
-                ]
-            )
+            decay_result = memory_decay.decay_memories([
+                {"text": note}
+                for note in cleaned_notes
+            ])
 
-            emotion_memory = (
-                emotion_response
-                .choices[0]
-                .message
-                .content
-                .strip()
-            )
-
-            if emotion_memory:
-
-                if emotion_memory not in profile["emotions"]:
-
-                    profile["emotions"].append(
-                        emotion_memory
-                    )
+            profile["notes"] = [
+                memory["text"]
+                for memory in decay_result["memories"]
+            ]
 
         except:
-            pass
 
-        if len(profile["emotions"]) > 30:
-            profile["emotions"] = profile["emotions"][-30:]
+            profile["notes"] = cleaned_notes[-80:]
 
-        # ================== MEMORY SUMMARY ==================
-        if len(profile["notes"]) >= 5:
-
-            summary_prompt = f"""
-Create a clean long-term user summary.
-
-Memories:
-{profile["notes"]}
-
-Return only summary text.
-"""
-
-            try:
-
-                summary_response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": summary_prompt
-                        }
-                    ]
-                )
-
-                profile["summary"] = (
-                    summary_response
-                    .choices[0]
-                    .message
-                    .content
-                )
-
-            except:
-                pass
-
-        # ================== SEARCH ==================
         web_results = ""
-
-        search_prompt = f"""
-Decide if internet search is needed.
-
-Return ONLY:
-YES
-or
-NO
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            search_decision = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": search_prompt
-                    }
-                ]
-            )
-
-            decision = (
-                search_decision
-                .choices[0]
-                .message
-                .content
-                .strip()
-                .upper()
-            )
-
-            if "YES" in decision:
-
-                web_results = web_search(
-                    user_text
-                )
-
-        except:
-            pass
 
         time_context = get_time_context()
 
@@ -880,105 +508,105 @@ User notes:
 
         messages += user_memory[user_id]
 
-# ================== THOUGHT ENGINE ==================
-try:
+        # ================== THOUGHT ENGINE ==================
+        try:
 
-    thought_data = thought_engine.analyze(
-        user_text
-    )
+            thought_data = thought_engine.analyze(
+                user_text
+            )
 
-    messages.append({
-        "role": "system",
-        "content": f"""
+            messages.append({
+                "role": "system",
+                "content": f"""
 Internal cognitive analysis:
 {thought_data}
 """
-    })
+            })
 
-except:
-    pass
+        except:
+            pass
 
-# ================== SELF AWARENESS ==================
-try:
+        # ================== SELF AWARENESS ==================
+        try:
 
-    self_reflection = (
-        self_awareness.reflect()
-    )
+            self_reflection = (
+                self_awareness.reflect()
+            )
 
-    messages.append({
-        "role": "system",
-        "content": f"""
+            messages.append({
+                "role": "system",
+                "content": f"""
 Eva internal reflection:
 {self_reflection}
 """
-    })
+            })
 
-except:
-    pass
+        except:
+            pass
 
-# ================== SEMANTIC MEMORY ==================
-try:
+        # ================== SEMANTIC MEMORY ==================
+        try:
 
-    related_memories = (
-        semantic_memory.search(
-            user_text,
-            profile["notes"]
-        )
-    )
+            related_memories = (
+                semantic_memory.search(
+                    user_text,
+                    profile["notes"]
+                )
+            )
 
-    messages.append({
-        "role": "system",
-        "content": f"""
+            messages.append({
+                "role": "system",
+                "content": f"""
 Related semantic memories:
 {related_memories}
 """
-    })
+            })
 
-except:
-    pass
+        except:
+            pass
 
-# ================== RELATIONSHIP ENGINE ==================
-try:
+        # ================== RELATIONSHIP ENGINE ==================
+        try:
 
-    relationship_data = (
-        relationship_engine.process_interaction(
-            user_text,
-            relationship
-        )
-    )
+            relationship_data = (
+                relationship_engine.process_interaction(
+                    user_text,
+                    relationship
+                )
+            )
 
-    profile["relationship"] = relationship_data
+            profile["relationship"] = relationship_data
 
-except:
-    pass
+        except:
+            pass
 
-# ================== EMOTION TRACKER ==================
-try:
+        # ================== EMOTION TRACKER ==================
+        try:
 
-    emotional_state = (
-        emotion_tracker.track(
-            user_text
-        )
-    )
+            emotional_state = (
+                emotion_tracker.track(
+                    user_text
+                )
+            )
 
-    profile["emotions"].append(
-        str(emotional_state)
-    )
+            profile["emotions"].append(
+                str(emotional_state)
+            )
 
-except:
-    pass
+        except:
+            pass
 
-# ================== MOOD MEMORY ==================
-try:
+        # ================== MOOD MEMORY ==================
+        try:
 
-    mood_memory.store_mood(
-        user_id,
-        mood
-    )
+            mood_memory.store_mood(
+                user_id,
+                mood
+            )
 
-except:
-    pass
-        
+        except:
+            pass
+
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages
@@ -993,47 +621,50 @@ except:
 
         # ================== ADVANCED PERSONALITY ==================
         try:
-        reply = personality_engine.humanize_response(
-               reply,
-               mood=mood
-        )
+
+            reply = personality_engine.humanize_response(
+                reply,
+                mood=mood
+            )
+
         except:
-        reply = add_human_touch(reply)
+
+            reply = add_human_touch(reply)
 
         user_memory[user_id].append({
             "role": "assistant",
             "content": reply
         })
 
-# ================== CONTEXT SUMMARY ==================
-try:
+        # ================== CONTEXT SUMMARY ==================
+        try:
 
-    profile["summary"] = (
-        context_summarizer.summarize(
-            profile["notes"]
-        )
-    )
+            profile["summary"] = (
+                context_summarizer.summarize(
+                    profile["notes"]
+                )
+            )
 
-except:
-    pass
+        except:
+            pass
 
-# ================== REFLECTION ENGINE ==================
-try:
+        # ================== REFLECTION ENGINE ==================
+        try:
 
-    reflection = (
-        reflection_engine.generate_reflection(
-            profile
-        )
-    )
+            reflection = (
+                reflection_engine.generate_reflection(
+                    profile
+                )
+            )
 
-    if reflection:
+            if reflection:
 
-        profile["notes"].append(
-            reflection
-        )
+                profile["notes"].append(
+                    reflection
+                )
 
-except:
-    pass
+        except:
+            pass
 
         save_user(user_id, profile)
 
@@ -1108,24 +739,22 @@ Be conversational and human-like.
             img
         )
 
-# ================== TYPING EFFECT ==================
-try:
+        # ================== TYPING EFFECT ==================
+        try:
 
-    import asyncio
+            typing_delay = (
+                typing_effect.get_delay(
+                    reply,
+                    "normal"
+                )
+            )
 
-    typing_delay = (
-        typing_effect.get_delay(
-            reply,
-            mood
-        )
-    )
+            await asyncio.sleep(
+                typing_delay
+            )
 
-    await asyncio.sleep(
-        typing_delay
-    )
-
-except:
-    pass
+        except:
+            pass
 
         await update.message.reply_text(
             reply
