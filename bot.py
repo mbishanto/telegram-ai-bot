@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request
 from threading import Thread
 from telegram import Update
 from telegram.ext import (
@@ -16,6 +16,7 @@ from duckduckgo_search import DDGS
 import google.generativeai as genai
 from PIL import Image
 
+import requests
 import random
 import os
 import json
@@ -29,6 +30,19 @@ app_web = Flask(__name__)
 @app_web.route('/')
 def home():
     return "Eva is alive"
+
+# ================== WHATSAPP VERIFY ==================
+@app_web.route("/webhook", methods=["GET"])
+def verify_webhook():
+
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return challenge, 200
+
+    return "Verification failed", 403
 
 def run_web():
     app_web.run(
@@ -50,6 +64,10 @@ GEMINI_KEYS = gemini_keys.split(",") if gemini_keys else []
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 
 if not TELEGRAM_TOKEN:
     raise ValueError("Missing TELEGRAM_TOKEN")
@@ -121,7 +139,6 @@ def get_user(user_id):
             "summary": data[0].get("summary", ""),
             "emotions": data[0].get("emotions", []),
 
-            # NEW
             "relationship": data[0].get("relationship", {
                 "friendship_level": 0,
                 "interaction_count": 0,
@@ -136,7 +153,6 @@ def get_user(user_id):
         "summary": "",
         "emotions": [],
 
-        # NEW
         "relationship": {
             "friendship_level": 0,
             "interaction_count": 0,
@@ -153,8 +169,6 @@ def save_user(user_id, profile):
         "notes": profile["notes"],
         "summary": profile.get("summary", ""),
         "emotions": profile.get("emotions", []),
-
-        # NEW
         "relationship": profile.get("relationship", {})
     }).execute()
 
@@ -301,6 +315,30 @@ def add_human_touch(reply):
 
     return reply
 
+# ================== WHATSAPP SEND ==================
+def send_whatsapp_message(to, message):
+
+    url = f"https://graph.facebook.com/v22.0/{PHONE_NUMBER_ID}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "text": {
+            "body": message
+        }
+    }
+
+    requests.post(
+        url,
+        headers=headers,
+        json=payload
+    )
+
 # ================== COMMANDS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -345,6 +383,72 @@ async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "I’m Eva. I try to talk naturally and understand you."
     )
 
+# ================== WHATSAPP RECEIVE ==================
+@app_web.route("/webhook", methods=["POST"])
+def whatsapp_webhook():
+
+    try:
+
+        data = request.get_json()
+
+        if data and "entry" in data:
+
+            for entry in data["entry"]:
+
+                for change in entry["changes"]:
+
+                    value = change.get("value", {})
+
+                    messages = value.get("messages")
+
+                    if messages:
+
+                        msg = messages[0]
+
+                        if msg.get("type") == "text":
+
+                            phone = msg["from"]
+
+                            text = msg["text"]["body"]
+
+                            client = get_client()
+
+                            response = client.chat.completions.create(
+                                model="llama-3.1-8b-instant",
+                                messages=[
+                                    {
+                                        "role": "system",
+                                        "content": SYSTEM_PROMPT
+                                    },
+                                    {
+                                        "role": "user",
+                                        "content": text
+                                    }
+                                ]
+                            )
+
+                            reply = (
+                                response
+                                .choices[0]
+                                .message
+                                .content
+                            )
+
+                            reply = add_human_touch(reply)
+
+                            send_whatsapp_message(
+                                phone,
+                                reply
+                            )
+
+        return "ok", 200
+
+    except Exception as e:
+
+        print(e)
+
+        return "error", 500
+
 # ================== MAIN ==================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -377,418 +481,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         client = get_client()
 
-        # ================== RELATIONSHIP MEMORY ==================
-        relationship = profile.get(
-            "relationship",
-            {}
-        )
-
-        relationship["interaction_count"] = (
-            relationship.get(
-                "interaction_count",
-                0
-            ) + 1
-        )
-
-        if relationship["interaction_count"] > 10:
-            relationship["friendship_level"] = 1
-
-        if relationship["interaction_count"] > 30:
-            relationship["friendship_level"] = 2
-
-        if relationship["interaction_count"] > 60:
-            relationship["friendship_level"] = 3
-
-        if relationship["interaction_count"] > 120:
-            relationship["friendship_level"] = 4
-
-        topic_prompt = f"""
-Detect recurring conversation topic.
-
-Return ONLY short topic.
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            topic_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": topic_prompt
-                    }
-                ]
-            )
-
-            topic = (
-                topic_response
-                .choices[0]
-                .message
-                .content
-                .strip()
-                .lower()
-            )
-
-            if topic:
-
-                topics = relationship.get(
-                    "favorite_topics",
-                    []
-                )
-
-                if topic not in topics:
-                    topics.append(topic)
-
-                relationship["favorite_topics"] = topics[-15:]
-
-        except:
-            pass
-
-        style_prompt = f"""
-Analyze user's conversation style.
-
-Return short result.
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            style_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": style_prompt
-                    }
-                ]
-            )
-
-            style = (
-                style_response
-                .choices[0]
-                .message
-                .content
-                .strip()
-            )
-
-            relationship["conversation_style"] = style
-
-        except:
-            pass
-
-        profile["relationship"] = relationship
-
-        # ================== SAVE NAME ==================
-        if "my name is" in user_text.lower():
-
-            name = user_text.lower().split(
-                "my name is"
-            )[-1].strip()
-
-            profile["name"] = name.title()
-
-        # ================== ADVANCED MEMORY ==================
-        memory_prompt = f"""
-You are a memory manager for an AI assistant.
-
-Return ONLY valid JSON.
-
-Format:
-{{
-    "save": true or false,
-    "delete": true or false,
-    "memory": "memory text"
-}}
-
-User message:
-{user_text}
-
-Existing memories:
-{profile["notes"]}
-"""
-
-        try:
-
-            memory_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": memory_prompt
-                    }
-                ]
-            )
-
-            memory_result = (
-                memory_response
-                .choices[0]
-                .message
-                .content
-            )
-
-            json_match = re.search(
-                r"\{.*\}",
-                memory_result,
-                re.DOTALL
-            )
-
-            if json_match:
-
-                memory_data = json.loads(
-                    json_match.group()
-                )
-
-            else:
-
-                memory_data = {
-                    "save": False,
-                    "delete": False,
-                    "memory": ""
-                }
-
-            if memory_data.get("delete"):
-
-                profile["notes"] = [
-                    note for note in profile["notes"]
-                    if memory_data["memory"].lower()
-                    not in note.lower()
-                ]
-
-            elif memory_data.get("save"):
-
-                updated = False
-
-                for i, note in enumerate(
-                    profile["notes"]
-                ):
-
-                    old_words = set(
-                        note.lower().split()
-                    )
-
-                    new_words = set(
-                        memory_data["memory"]
-                        .lower()
-                        .split()
-                    )
-
-                    similarity = len(
-                        old_words.intersection(
-                            new_words
-                        )
-                    )
-
-                    if similarity >= 3:
-
-                        profile["notes"][i] = (
-                            memory_data["memory"]
-                        )
-
-                        updated = True
-                        break
-
-                if not updated:
-
-                    profile["notes"].append(
-                        memory_data["memory"]
-                    )
-
-        except:
-            pass
-
-        # ================== SMART FORGETTING ==================
-
-        important_keywords = [
-            "name",
-            "birthday",
-            "family",
-            "study",
-            "job",
-            "work",
-            "favorite",
-            "relationship",
-            "emotion",
-            "goal",
-            "dream",
-            "important"
-        ]
-
-        cleaned_notes = []
-
-        for note in profile["notes"]:
-
-            note_lower = note.lower()
-
-            importance_score = 0
-
-            # keyword importance
-            for keyword in important_keywords:
-
-                if keyword in note_lower:
-                    importance_score += 2
-
-            # longer memories are usually meaningful
-            if len(note.split()) > 5:
-                importance_score += 1
-
-            # emotional memories
-            emotional_words = [
-                "sad",
-                "happy",
-                "stress",
-                "love",
-                "fear",
-                "excited"
-            ]
-
-            for word in emotional_words:
-
-                if word in note_lower:
-                    importance_score += 2
-
-            # keep important memories
-            if importance_score >= 2:
-                cleaned_notes.append(note)
-
-        # keep recent memories too
-        recent_notes = profile["notes"][-20:]
-
-        for note in recent_notes:
-
-            if note not in cleaned_notes:
-                cleaned_notes.append(note)
-
-        # final memory limit
-        profile["notes"] = cleaned_notes[-80:]
-
-        # ================== EMOTIONAL MEMORY ==================
-        emotion_prompt = f"""
-Analyze emotional state.
-
-Return short emotional observation.
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            emotion_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": emotion_prompt
-                    }
-                ]
-            )
-
-            emotion_memory = (
-                emotion_response
-                .choices[0]
-                .message
-                .content
-                .strip()
-            )
-
-            if emotion_memory:
-
-                if emotion_memory not in profile["emotions"]:
-
-                    profile["emotions"].append(
-                        emotion_memory
-                    )
-
-        except:
-            pass
-
-        if len(profile["emotions"]) > 30:
-            profile["emotions"] = profile["emotions"][-30:]
-
-        # ================== MEMORY SUMMARY ==================
-        if len(profile["notes"]) >= 5:
-
-            summary_prompt = f"""
-Create a clean long-term user summary.
-
-Memories:
-{profile["notes"]}
-
-Return only summary text.
-"""
-
-            try:
-
-                summary_response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": summary_prompt
-                        }
-                    ]
-                )
-
-                profile["summary"] = (
-                    summary_response
-                    .choices[0]
-                    .message
-                    .content
-                )
-
-            except:
-                pass
-
-        # ================== SEARCH ==================
-        web_results = ""
-
-        search_prompt = f"""
-Decide if internet search is needed.
-
-Return ONLY:
-YES
-or
-NO
-
-User message:
-{user_text}
-"""
-
-        try:
-
-            search_decision = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": search_prompt
-                    }
-                ]
-            )
-
-            decision = (
-                search_decision
-                .choices[0]
-                .message
-                .content
-                .strip()
-                .upper()
-            )
-
-            if "YES" in decision:
-
-                web_results = web_search(
-                    user_text
-                )
-
-        except:
-            pass
-
         time_context = get_time_context()
 
         messages = [
@@ -801,31 +493,6 @@ User message:
             {
                 "role": "system",
                 "content": f"time: {time_context}"
-            },
-
-            {
-                "role": "system",
-                "content": f"""
-IMPORTANT USER MEMORY:
-
-User name:
-{profile['name']}
-
-User summary:
-{profile.get('summary', '')}
-
-User emotional patterns:
-{profile.get('emotions', [])}
-
-Relationship memory:
-{profile.get('relationship', {})}
-
-Internet search results:
-{web_results}
-
-User notes:
-{profile['notes']}
-"""
             },
 
             {
@@ -910,17 +577,8 @@ You are Eva.
 
 Analyze this image naturally.
 
-If it contains:
-- homework → solve it
-- screenshot → explain it
-- text → read it
-- drawing → describe it
-- object → identify it
-
 User message:
 {caption}
-
-Be conversational and human-like.
 """
 
         reply = get_gemini_response(
@@ -1000,7 +658,7 @@ def main():
     )
 
     print(
-        "Eva Ultra Human (No Buttons) running..."
+        "Eva Ultra Human (Telegram + WhatsApp) running..."
     )
 
     app.run_polling(
