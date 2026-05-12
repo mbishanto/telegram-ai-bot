@@ -23,6 +23,23 @@ import re
 
 from datetime import datetime
 
+# ================== ADVANCED SYSTEMS ==================
+from autonomous_behavior import AutonomousBehavior
+from context_summarizer import ContextSummarizer
+from dream_engine import DreamEngine
+from emotion_tracker import EmotionTracker
+from memory_decay import MemoryDecaySystem
+from memory_importance import MemoryImportanceSystem
+from mood_memory import MoodMemory
+from personality_engine import PersonalityEngine
+from reflection_engine import ReflectionEngine
+from relationship_engine import RelationshipEngine
+from self_awareness import SelfAwareness
+from semantic_memory import SemanticMemory
+from thought_engine import ThoughtEngine
+from typing_effect import TypingEffect
+from voice_system import VoiceSystem
+
 # ================== KEEP ALIVE ==================
 app_web = Flask(__name__)
 
@@ -59,6 +76,23 @@ if not GROQ_KEYS:
 
 if not GEMINI_KEYS:
     raise ValueError("Missing GEMINI_KEYS")
+
+# ================== ADVANCED AI INIT ==================
+emotion_tracker = EmotionTracker()
+memory_decay = MemoryDecaySystem()
+memory_importance = MemoryImportanceSystem()
+mood_memory = MoodMemory()
+personality_engine = PersonalityEngine()
+reflection_engine = ReflectionEngine()
+relationship_engine = RelationshipEngine()
+self_awareness = SelfAwareness()
+semantic_memory = SemanticMemory()
+thought_engine = ThoughtEngine()
+typing_effect = TypingEffect()
+voice_system = VoiceSystem()
+dream_engine = DreamEngine()
+context_summarizer = ContextSummarizer()
+autonomous_behavior = AutonomousBehavior()
 
 # ================== AI CLIENTS ==================
 def get_client():
@@ -663,8 +697,18 @@ Existing memories:
             if note not in cleaned_notes:
                 cleaned_notes.append(note)
 
-        # final memory limit
-        profile["notes"] = cleaned_notes[-80:]
+        # ================== ADVANCED MEMORY DECAY ==================
+try:
+
+    profile["notes"] = (
+        memory_decay.clean_memories(
+            cleaned_notes
+        )
+    )
+
+except:
+
+    profile["notes"] = cleaned_notes[-80:]
 
         # ================== EMOTIONAL MEMORY ==================
         emotion_prompt = f"""
@@ -836,6 +880,105 @@ User notes:
 
         messages += user_memory[user_id]
 
+# ================== THOUGHT ENGINE ==================
+try:
+
+    thought_data = thought_engine.analyze(
+        user_text
+    )
+
+    messages.append({
+        "role": "system",
+        "content": f"""
+Internal cognitive analysis:
+{thought_data}
+"""
+    })
+
+except:
+    pass
+
+# ================== SELF AWARENESS ==================
+try:
+
+    self_reflection = (
+        self_awareness.reflect()
+    )
+
+    messages.append({
+        "role": "system",
+        "content": f"""
+Eva internal reflection:
+{self_reflection}
+"""
+    })
+
+except:
+    pass
+
+# ================== SEMANTIC MEMORY ==================
+try:
+
+    related_memories = (
+        semantic_memory.search(
+            user_text,
+            profile["notes"]
+        )
+    )
+
+    messages.append({
+        "role": "system",
+        "content": f"""
+Related semantic memories:
+{related_memories}
+"""
+    })
+
+except:
+    pass
+
+# ================== RELATIONSHIP ENGINE ==================
+try:
+
+    relationship_data = (
+        relationship_engine.process_interaction(
+            user_text,
+            relationship
+        )
+    )
+
+    profile["relationship"] = relationship_data
+
+except:
+    pass
+
+# ================== EMOTION TRACKER ==================
+try:
+
+    emotional_state = (
+        emotion_tracker.track(
+            user_text
+        )
+    )
+
+    profile["emotions"].append(
+        str(emotional_state)
+    )
+
+except:
+    pass
+
+# ================== MOOD MEMORY ==================
+try:
+
+    mood_memory.store_mood(
+        user_id,
+        mood
+    )
+
+except:
+    pass
+        
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages
@@ -848,12 +991,49 @@ User notes:
             .content
         )
 
+        # ================== ADVANCED PERSONALITY ==================
+        try:
+        reply = personality_engine.humanize_response(
+               reply,
+               mood=mood
+        )
+        except:
         reply = add_human_touch(reply)
 
         user_memory[user_id].append({
             "role": "assistant",
             "content": reply
         })
+
+# ================== CONTEXT SUMMARY ==================
+try:
+
+    profile["summary"] = (
+        context_summarizer.summarize(
+            profile["notes"]
+        )
+    )
+
+except:
+    pass
+
+# ================== REFLECTION ENGINE ==================
+try:
+
+    reflection = (
+        reflection_engine.generate_reflection(
+            profile
+        )
+    )
+
+    if reflection:
+
+        profile["notes"].append(
+            reflection
+        )
+
+except:
+    pass
 
         save_user(user_id, profile)
 
@@ -928,6 +1108,25 @@ Be conversational and human-like.
             img
         )
 
+# ================== TYPING EFFECT ==================
+try:
+
+    import asyncio
+
+    typing_delay = (
+        typing_effect.get_delay(
+            reply,
+            mood
+        )
+    )
+
+    await asyncio.sleep(
+        typing_delay
+    )
+
+except:
+    pass
+
         await update.message.reply_text(
             reply
         )
@@ -944,9 +1143,21 @@ async def handle_voice(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    await update.message.reply_text(
-        "Voice received."
-    )
+    try:
+
+        voice_reply = (
+            voice_system.process_voice()
+        )
+
+        await update.message.reply_text(
+            voice_reply
+        )
+
+    except:
+
+        await update.message.reply_text(
+            "Voice received."
+        )
 
 # ================== START ==================
 def main():
