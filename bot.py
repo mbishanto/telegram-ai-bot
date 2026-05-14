@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, escape
 from threading import Thread
 from telegram import Update
 from telegram.ext import (
@@ -40,7 +40,7 @@ def verify_webhook():
     challenge = request.args.get("hub.challenge")
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
-        return challenge, 200
+        return escape(challenge or ""), 200
 
     return "Verification failed", 403
 
